@@ -5,7 +5,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import torch.nn.init as init
-
+from torch_geometric.nn import GCNConv
 from Optim import ScheduledOptim
 
 from models.TransformerBlock import *
@@ -66,6 +66,32 @@ class fusion(nn.Module):
         out = torch.sum(emb_score * emb, dim=0)
         return out
 
+class GraphNN(nn.Module):
+    def __init__(self, ntoken, ninp, dropout=0.5, is_norm=True):
+        super(GraphNN, self).__init__()
+        self.embedding = nn.Embedding(ntoken, ninp, padding_idx=0)
+        # in:inp,out:nip*2
+        self.gnn1 = GCNConv(ninp, ninp * 2)
+        self.gnn2 = GCNConv(ninp * 2, ninp)
+        self.is_norm = is_norm
+
+        self.dropout = nn.Dropout(dropout)
+        if self.is_norm:
+            self.batch_norm = torch.nn.BatchNorm1d(ninp)
+        self.init_weights()
+
+    def init_weights(self):
+        init.xavier_normal_(self.embedding.weight)
+
+    def forward(self, graph):
+        graph_edge_index = graph.edge_index.cuda()
+        graph_x_embeddings = self.gnn1(self.embedding.weight, graph_edge_index)
+        graph_x_embeddings = self.dropout(graph_x_embeddings)
+        graph_output = self.gnn2(graph_x_embeddings, graph_edge_index)
+        if self.is_norm:
+            graph_output = self.batch_norm(graph_output)
+        # print(graph_output.shape)
+        return graph_output.cuda()
 
 class LSTMGNN(nn.Module):
     def __init__(self, hypergraphs, args, dropout=0.2):
@@ -83,6 +109,8 @@ class LSTMGNN(nn.Module):
         #hypergraph
         self.H_Item = hypergraphs[0]   
         self.H_User =hypergraphs[1]
+
+        self.gnn = GraphNN(self.n_node, self.initial_feature, dropout=dropout)
 
         ###### user embedding
         self.user_embedding = nn.Embedding(self.n_node, self.emb_size, padding_idx=0)
@@ -221,10 +249,10 @@ class LSTMGNN(nn.Module):
             H_User = self.H_User
 
         u_emb_c2 = self.self_gating(self.user_embedding.weight, 0)
-        u_emb_c3 = self.self_gating(self.user_embedding.weight, 1)
+
 
         all_emb_c2 = [u_emb_c2]
-        all_emb_c3 = [u_emb_c3]
+
 
         for k in range(self.layers):
             # Channel Item
@@ -232,21 +260,15 @@ class LSTMGNN(nn.Module):
             norm_embeddings2 = F.normalize(u_emb_c2, p=2, dim=1)
             all_emb_c2 += [norm_embeddings2]
 
-            u_emb_c3 = torch.sparse.mm(H_User, u_emb_c3)
-            norm_embeddings2 = F.normalize(u_emb_c3, p=2, dim=1)
-            all_emb_c3 += [norm_embeddings2]
 
         u_emb_c2 = torch.stack(all_emb_c2, dim=1)
         u_emb_c2 = torch.sum(u_emb_c2, dim=1)
-        u_emb_c3 = torch.stack(all_emb_c3, dim=1)
-        u_emb_c3 = torch.sum(u_emb_c3, dim=1)
 
-        # aggregating channel-specific embeddings
-        high_embs, attention_score = self.channel_attention(u_emb_c2, u_emb_c3)
 
-        return high_embs
 
-    def forward(self, input, label):
+        return u_emb_c2
+
+    def forward(self, input, label,socail_graph):
 
         mask = (input == 0)
         mask_label = (label == 0)
@@ -256,6 +278,10 @@ class LSTMGNN(nn.Module):
 
         '''past cascade embeddding'''
         cas_seq_emb = F.embedding(input, HG_Uemb)
+
+        social_embedding=self.dropout(self.gnn(socail_graph))
+
+        social_seq_emb= F.embedding(input,social_embedding)
 
         ####long-term temporal influence
         source_emb = cas_seq_emb[:, 0, :]

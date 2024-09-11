@@ -3,6 +3,11 @@ import math
 import scipy.sparse as ss
 import numpy as np
 from dataLoader import Options, Read_all_cascade
+import pickle
+import os
+from torch_geometric.data import Data
+
+
 
 def _convert_sp_mat_to_sp_tensor(X):
     coo = X.tocoo().astype(np.float32)
@@ -112,3 +117,29 @@ def ConHypergraph(data_name, user_size, window):
     HG_User = _convert_sp_mat_to_sp_tensor(HG_User)
 
     return HG_Item, HG_User
+
+
+def ConRelationGraph(data):
+    options = Options(data)
+    _u2idx = {}
+
+    with open(options.u2idx_dict, 'rb') as handle:
+        _u2idx = pickle.load(handle)
+
+    edges_list = []
+    if os.path.exists(options.net_data):
+        with open(options.net_data, 'r') as handle:
+            relation_list = handle.read().strip().split("\n")
+            relation_list = [edge.split(',') for edge in relation_list]
+
+            relation_list = [(_u2idx[edge[0]], _u2idx[edge[1]]) for edge in relation_list if
+                             edge[0] in _u2idx and edge[1] in _u2idx]
+            relation_list_reverse = [edge[::-1] for edge in relation_list]
+            edges_list += relation_list_reverse
+    else:
+        return []
+    edges_list_tensor = torch.LongTensor(edges_list).t()
+    edges_weight = torch.ones(edges_list_tensor.size(1)).float()
+    data = Data(edge_index=edges_list_tensor, edge_attr=edges_weight)
+
+    return data

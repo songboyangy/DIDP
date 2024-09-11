@@ -7,7 +7,7 @@ from dataLoader import datasets, Read_data, Split_data
 from utils.parsers import parser
 from utils.Metrics import Metrics
 from utils.EarlyStopping import *
-from utils.graphConstruct import ConHypergraph
+from utils.graphConstruct import ConHypergraph,ConRelationGraph
 
 
 metric = Metrics()
@@ -29,7 +29,7 @@ def get_performance(crit, pred, gold):
     n_correct = n_correct.masked_select(gold.ne(Constants.PAD).data).sum().float()
     return loss, n_correct
 
-def model_training(model, train_loader, epoch):
+def model_training(model, train_loader,social_graph, epoch):
     ''' model training '''
     torch.autograd.set_detect_anomaly(True)
     total_loss = 0.0
@@ -75,7 +75,7 @@ def model_training(model, train_loader, epoch):
 
         return total_loss, n_total_correct/n_total_words
 
-def model_testing(model, test_loader, k_list=[10, 50, 100]):
+def model_testing(model, test_loader,social_graph, k_list=[10, 50, 100]):
     ''' Epoch operation in evaluation phase '''
     scores = {}
     for k in k_list:
@@ -118,11 +118,11 @@ def model_testing(model, test_loader, k_list=[10, 50, 100]):
 
         return scores, n_correct/n_total_words
 
-def train_test(epoch, model, train_loader, val_loader, test_loader):
+def train_test(epoch, model, train_loader, val_loader, test_loader,social_graph):
 
-    total_loss, accuracy = model_training(model, train_loader, epoch)
-    val_scores, val_accuracy = model_testing(model, val_loader)
-    test_scores, test_accuracy = model_testing(model, test_loader)
+    total_loss, accuracy = model_training(model, train_loader,social_graph, epoch)
+    val_scores, val_accuracy = model_testing(model, val_loader,social_graph)
+    test_scores, test_accuracy = model_testing(model, test_loader,social_graph)
 
     return total_loss, val_scores, test_scores, val_accuracy.item(), test_accuracy.item()
 
@@ -146,6 +146,7 @@ def main(data_path, seed=2023):
     train_loader = DataLoader(dataset=train_data, batch_size=opt.batch_size, shuffle=True, num_workers=8)
     val_loader = DataLoader(dataset=val_data, batch_size=opt.batch_size, shuffle=False, num_workers=8)
     test_loader = DataLoader(dataset=test_data, batch_size=opt.batch_size, shuffle=False, num_workers=8)
+    social_graph=ConRelationGraph(data_path)
 
     # ========= Preparing graph and hypergraph =========#
     opt.n_node = user_size
@@ -170,7 +171,7 @@ def main(data_path, seed=2023):
     validation_history = 0.0
 
     for epoch in range(opt.epoch):
-        total_loss, val_scores, test_scores, val_accuracy, test_accuracy = train_test(epoch, model, train_loader, val_loader, test_loader)
+        total_loss, val_scores, test_scores, val_accuracy, test_accuracy = train_test(epoch, model, train_loader, val_loader, test_loader,social_graph)
 
         if validation_history <= sum(val_scores.values()):
             validation_history = sum(val_scores.values())
