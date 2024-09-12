@@ -211,51 +211,45 @@ class GaussianDiffusion(nn.Module):
                 * noise
         )
 
-    def q_posterior_mean_variance(self, x_start, x_t, t):
+    def q_posterior_mean_variance(self, emb_s, emb_t, t):
         """
         Compute the mean and variance of the diffusion posterior:
             q(x_{t-1} | x_t, x_0)
         """
-        assert x_start.shape == x_t.shape
+        assert emb_s.shape == emb_t.shape
         posterior_mean = (
-                self._extract_into_tensor(self.posterior_mean_coef1, t, x_t.shape) * x_start
-                + self._extract_into_tensor(self.posterior_mean_coef2, t, x_t.shape) * x_t
+                self._extract_into_tensor(self.posterior_mean_coef1, t, emb_t.shape) * emb_s
+                + self._extract_into_tensor(self.posterior_mean_coef2, t, emb_t.shape) * emb_t
         )
-        posterior_variance = self._extract_into_tensor(self.posterior_variance, t, x_t.shape)
+        posterior_variance = self._extract_into_tensor(self.posterior_variance, t, emb_t.shape)
         posterior_log_variance_clipped = self._extract_into_tensor(
-            self.posterior_log_variance_clipped, t, x_t.shape
+            self.posterior_log_variance_clipped, t, emb_t.shape
         )
         assert (
                 posterior_mean.shape[0]
                 == posterior_variance.shape[0]
                 == posterior_log_variance_clipped.shape[0]
-                == x_start.shape[0]
+                == emb_s.shape[0]
         )
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def p_mean_variance(self, model, x, con_emb, t):
+    def p_mean_variance(self, model, x, t):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
         the initial x, x_0.
         """
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, con_emb, t)
+        model_output = model(x, t)
 
         model_variance = self.posterior_variance
         model_log_variance = self.posterior_log_variance_clipped
 
         model_variance = self._extract_into_tensor(model_variance, t, x.shape)
         model_log_variance = self._extract_into_tensor(model_log_variance, t, x.shape)
+        pred_xstart = model_output
 
-        if self.mean_type == ModelMeanType.START_X:
-            pred_xstart = model_output
-        elif self.mean_type == ModelMeanType.EPSILON:
-            pred_xstart = self._predict_xstart_from_eps(x, t, eps=model_output)
-        else:
-            raise NotImplementedError(self.mean_type)
-
-        model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=x, t=t)
+        model_mean, _, _ = self.q_posterior_mean_variance(emb_s=pred_xstart, emb_t=x, t=t)
 
         assert (
                 model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape

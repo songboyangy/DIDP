@@ -18,7 +18,7 @@ parser.add_argument('--beta2', type=float, default=0.005, help='ssl cascade task
 parser.add_argument('--window', type=int, default=10, help='window size')  
 parser.add_argument('-n_warmup_steps', type=int, default=1000)
 parser.add_argument('-dropout', type=float, default=0.2)
-
+parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
 #####data process
 parser.add_argument('-train_rate', type=float, default=0.8)
 parser.add_argument('-valid_rate', type=float, default=0.1)

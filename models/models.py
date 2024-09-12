@@ -12,11 +12,12 @@ from TransformerBlock import TransformerBlock
 from models.ConvBlock import *
 
 '''To GPU'''
-def trans_to_cuda(variable):
+def trans_to_cuda(variable, device_id=0):
     if torch.cuda.is_available():
-        return variable.cuda()
+        return variable.cuda(device_id)
     else:
         return variable
+
 
 '''To CPU'''
 def trans_to_cpu(variable):
@@ -101,6 +102,8 @@ class GraphNN(nn.Module):
 class LSTMGNN(nn.Module):
     def __init__(self, hypergraphs, args, dropout=0.2):
         super(LSTMGNN, self).__init__()
+
+        self.args=args
 
         # parameters
         self.emb_size = args.embSize
@@ -216,7 +219,7 @@ class LSTMGNN(nn.Module):
 
         return (prediction + mask).view(-1, prediction.size(-1)).cuda(),recons_loss
 
-    def model_prediction(self, input):
+    def model_prediction(self, input,socail_graph,diff_model,social_reverse_model,cas_reverse_model):
 
         mask = (input == 0)
 
@@ -226,53 +229,24 @@ class LSTMGNN(nn.Module):
         '''cascade embeddding'''
         cas_seq_emb = F.embedding(input, HG_Uemb)
 
-        ####long-term temporal influence
-        source_emb = cas_seq_emb[:, 0, :]
-        L_cas_emb = self.long_term_att(source_emb, cas_seq_emb, cas_seq_emb, mask=mask.cuda())
+        social_embedding = self.dropout(self.gnn(socail_graph))
 
-        ####short-term temporal influence
-        user_cas_gru, _ = self.past_gru(cas_seq_emb)
-        user_cas_lstm, _ = self.past_lstm(cas_seq_emb)
-        S_cas_emb = self.short_term_att(user_cas_gru, user_cas_lstm, user_cas_lstm, mask=mask.cuda())
+        social_seq_emb = F.embedding(input, social_embedding)
 
-        LS_cas_emb = torch.cat([cas_seq_emb, L_cas_emb, S_cas_emb], -1)
-        LS_cas_emb = self.linear(LS_cas_emb)
+        noise_social_emb = self.apply_T_noise(social_seq_emb, diff_model)
+        noise_cas_emb=self.apply_T_noise(cas_seq_emb, diff_model)
+        denoise_social_emb=diff_model.p_sample(social_reverse_model,noise_social_emb,self.args.sampling_steps,self.args.sampling_noise)
+        denoise_cas_emb=diff_model.p_sample(cas_reverse_model,noise_cas_emb,self.args.sampling_steps,self.args.sampling_noise)
+        user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
+        att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
+        prediction = self.linear1(att_out)
 
-        output = self.past_multi_att(LS_cas_emb, LS_cas_emb, LS_cas_emb, mask)
-        pre_y = torch.matmul(output, torch.transpose(HG_Uemb, 1, 0))
         mask = get_previous_user_mask(input, self.n_node)
 
-        return (pre_y + mask).view(-1, pre_y.size(-1)).cuda()
+        return (prediction + mask).view(-1, prediction.size(-1)).cuda()
 
-    def model_prediction2(self, input, input_len, HG_Time, HG_Item, HG_User):
 
-        mask = (input == 0)
 
-        b = input_len.size(0)
-
-        '''structure embeddding'''
-        HG_Uemb = self.structure_embed(H_Time=HG_Time, H_Item=HG_Item, H_User=HG_User)
-
-        '''cascade embeddding'''
-        cas_seq_emb = F.embedding(input, HG_Uemb)
-
-        ####long-term temporal influence
-        source_emb = cas_seq_emb[:, 0, :]
-        L_cas_emb = self.long_term_att(source_emb, cas_seq_emb, cas_seq_emb, mask=mask.cuda())
-
-        ####short-term temporal influence
-        user_cas_gru, _ = self.past_gru(cas_seq_emb)
-        user_cas_lstm, _ = self.past_lstm(cas_seq_emb)
-        S_cas_emb = self.short_term_att(user_cas_gru, user_cas_lstm, user_cas_lstm, mask=mask.cuda())
-
-        LS_cas_emb = torch.cat([cas_seq_emb, L_cas_emb, S_cas_emb], -1)
-        LS_cas_emb = self.linear(LS_cas_emb)
-
-        output = self.past_multi_att(LS_cas_emb, LS_cas_emb, LS_cas_emb, mask)
-        pre_y = torch.matmul(output, torch.transpose(HG_Uemb, 1, 0))
-        mask = get_previous_user_mask(input, self.n_node)
-
-        return (pre_y + mask).view(-1, pre_y.size(-1)).cuda()
 
     def apply_noise(self, user_emb, item_emb, diff_model):
         # cat_emb shape: (batch_size*3, emb_size)
@@ -286,6 +260,11 @@ class LSTMGNN(nn.Module):
         user_noise_emb = diff_model.q_sample(user_emb, ts, user_noise)
         item_noise_emb = diff_model.q_sample(item_emb, ts, item_noise)
         return user_noise_emb, item_noise_emb, ts, pt
+    def apply_T_noise(self, cat_emb, diff_model):
+        t = torch.tensor([self.args.steps - 1] * cat_emb.shape[0]).to(cat_emb.device)
+        noise = torch.randn_like(cat_emb)
+        noise_emb = diff_model.q_sample(cat_emb, t, noise)
+        return noise_emb
 
 
 
