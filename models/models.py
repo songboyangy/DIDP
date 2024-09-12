@@ -8,7 +8,7 @@ import torch.nn.init as init
 from torch_geometric.nn import GCNConv
 from Optim import ScheduledOptim
 
-from models.TransformerBlock import *
+from TransformerBlock import TransformerBlock
 from models.ConvBlock import *
 
 '''To GPU'''
@@ -47,17 +47,22 @@ def get_previous_user_mask(seq, user_size):
     masked_seq = ans_tmp.scatter_(2, masked_seq.long(), float('-inf'))
     return masked_seq.cuda()
 
-class fusion(nn.Module):
-    def __init__(self, input_size, dropout=0.2):
-        super(fusion, self).__init__()
+
+
+
+
+
+class Fusion(nn.Module):
+    def __init__(self, input_size, out=1, dropout=0.2):
+        super(Fusion, self).__init__()
         self.linear1 = nn.Linear(input_size, input_size)
-        self.linear2 = nn.Linear(input_size, 1)
+        self.linear2 = nn.Linear(input_size, out)
         self.dropout = nn.Dropout(dropout)
         self.init_weights()
 
     def init_weights(self):
-        nn.init.xavier_normal_(self.linear1.weight)
-        nn.init.xavier_normal_(self.linear2.weight)
+        init.xavier_normal_(self.linear1.weight)
+        init.xavier_normal_(self.linear2.weight)
 
     def forward(self, hidden, dy_emb):
         emb = torch.cat([hidden.unsqueeze(dim=0), dy_emb.unsqueeze(dim=0)], dim=0)
@@ -111,43 +116,23 @@ class LSTMGNN(nn.Module):
         self.H_User =hypergraphs[1]
 
         self.gnn = GraphNN(self.n_node, self.initial_feature, dropout=dropout)
+        self.fus = Fusion(self.emb_size)
+        self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8)
+
 
         ###### user embedding
         self.user_embedding = nn.Embedding(self.n_node, self.emb_size, padding_idx=0)
 
-        ### channel self-gating parameters
-        self.weights = nn.ParameterList([nn.Parameter(torch.zeros(self.emb_size, self.emb_size)) for _ in range(self.n_channel)])
-        self.bias = nn.ParameterList([nn.Parameter(torch.zeros(1, self.emb_size)) for _ in range(self.n_channel)])
 
-        ### channel self-supervised parameters
-        self.ssl_weights = nn.ParameterList([nn.Parameter(torch.zeros(self.emb_size, self.emb_size)) for _ in range(self.n_channel)])
-        self.ssl_bias = nn.ParameterList([nn.Parameter(torch.zeros(1, self.emb_size)) for _ in range(self.n_channel)])
-
-        ### attention parameters
-        self.att = nn.Parameter(torch.zeros(1, self.emb_size))
-        self.att_m = nn.Parameter(torch.zeros(self.emb_size, self.emb_size))
-
-        #sequence model
-        self.past_gru = nn.GRU(input_size=self.emb_size, hidden_size=self.emb_size, batch_first= True)
-        self.past_lstm = nn.LSTM(input_size=self.emb_size, hidden_size=self.emb_size, batch_first=True)
-
-        # multi-head attention
-        self.past_multi_att = TransformerBlock(input_size=self.emb_size, n_heads=4, attn_dropout=dropout)
-
-        self.future_multi_att = TransformerBlock(input_size=self.emb_size, n_heads=4, is_FFN=False,
-                                                 is_future=True, attn_dropout=dropout)
-
-        self.long_term_att = Long_term_atention(input_size=self.emb_size, attn_dropout=dropout)
-        self.short_term_att = Short_term_atention(input_size=self.emb_size, attn_dropout=dropout)
-        self.conv = ConvBlock(n_inputs=self.emb_size, n_outputs=self.emb_size, kernel_size=self.win_size, padding = self.win_size-1)
         self.linear = nn.Linear(self.emb_size*3, self.emb_size)
+        self.linear1=nn.Linear(self.emb_size, self.n_node)
 
         self.reset_parameters()
 
-        #### optimizer and loss function
-        self.optimizerAdam = torch.optim.Adam(self.parameters(), betas=(0.9, 0.98), eps=1e-09)
-        self.optimizer = ScheduledOptim(self.optimizerAdam, self.emb_size, args.n_warmup_steps)
-        self.loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=0)
+        # #### optimizer and loss function
+        # self.optimizerAdam = torch.optim.Adam(self.parameters(), betas=(0.9, 0.98), eps=1e-09)
+        # self.optimizer = ScheduledOptim(self.optimizerAdam, self.emb_size, args.n_warmup_steps)
+        # self.loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=0)
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.emb_size)
@@ -157,75 +142,10 @@ class LSTMGNN(nn.Module):
     def self_gating(self, em, channel):
         return torch.multiply(em, torch.sigmoid(torch.matmul(em, self.weights[channel]) + self.bias[channel]))
 
-    def self_supervised_gating(self, em, channel):
-        return torch.multiply(em, torch.sigmoid(torch.matmul(em, self.ssl_weights[channel]) + self.ssl_bias[channel]))
 
-    def channel_attention(self, *channel_embeddings):
-        weights = []
-        for embedding in channel_embeddings:
-            weights.append(
-                torch.sum(
-                    torch.multiply(self.att, torch.matmul(embedding, self.att_m)),
-                    1))
-        embs = torch.stack(weights, dim=0)
-        score = F.softmax(embs.t(), dim = -1)
-        mixed_embeddings = 0
-        for i in range(len(weights)):
-            mixed_embeddings += torch.multiply(score.t()[i], channel_embeddings[i].t()).t()
-        return mixed_embeddings, score
 
-    def hierarchical_ssl(self, em, adj):
-        def row_shuffle(embedding):
-            corrupted_embedding = embedding[torch.randperm(embedding.size()[0])]
-            return corrupted_embedding
 
-        def row_column_shuffle(embedding):
-            corrupted_embedding = embedding[torch.randperm(embedding.size()[0])]
-            corrupted_embedding = corrupted_embedding[:, torch.randperm(corrupted_embedding.size()[1])]
-            return corrupted_embedding
 
-        def score(x1, x2):
-            return torch.sum(torch.mul(x1, x2), 1)
-
-        user_embeddings = em
-        edge_embeddings = torch.sparse.mm(adj, em)
-
-        # Local MIM
-        pos = score(user_embeddings, edge_embeddings)
-        neg1 = score(row_shuffle(user_embeddings), edge_embeddings)
-        neg2 = score(row_column_shuffle(edge_embeddings), user_embeddings)
-        local_loss = torch.sum(-torch.log(torch.sigmoid(pos - neg1)) - torch.log(torch.sigmoid(neg1 - neg2)))
-
-        # Global MIM
-        graph = torch.mean(edge_embeddings, 0)
-        pos = score(edge_embeddings, graph)
-        neg1 = score(row_column_shuffle(edge_embeddings), graph)
-        global_loss = torch.sum(-torch.log(torch.sigmoid(pos - neg1)))
-        return global_loss + local_loss
-
-    def seq2seq_ssl(self, L_fea1, L_fea2, S_fea1, S_fea2):
-        def row_shuffle(embedding):
-            corrupted_embedding = embedding[torch.randperm(embedding.size()[0])]
-            return corrupted_embedding
-
-        def row_column_shuffle(embedding):
-            corrupted_embedding = embedding[torch.randperm(embedding.size()[0])]
-            corrupted_embedding = corrupted_embedding[:, torch.randperm(corrupted_embedding.size()[1])]
-            return corrupted_embedding
-
-        def score(x1, x2):
-            return torch.sum(torch.mul(x1, x2), -1)
-
-        # Local MIM
-        pos = score(L_fea1, L_fea2)
-        neg1 = score(L_fea1, S_fea2)
-        neg2 = score(L_fea2, S_fea1)
-        loss1 = torch.sum(-torch.log(torch.sigmoid(pos - neg1)) - torch.log(torch.sigmoid(neg1 - neg2)))
-
-        pos = score(S_fea1, S_fea2)
-        loss2 = torch.sum(-torch.log(torch.sigmoid(pos - neg1)) - torch.log(torch.sigmoid(neg1 - neg2)))
-
-        return loss1 + loss2
 
     def _dropout_graph(self, graph, keep_prob):
         size = graph.size()
@@ -264,11 +184,9 @@ class LSTMGNN(nn.Module):
         u_emb_c2 = torch.stack(all_emb_c2, dim=1)
         u_emb_c2 = torch.sum(u_emb_c2, dim=1)
 
-
-
         return u_emb_c2
 
-    def forward(self, input, label,socail_graph):
+    def forward(self, input, label,socail_graph,diff_model,social_reverse_model,cas_reverse_model):
 
         mask = (input == 0)
         mask_label = (label == 0)
@@ -283,37 +201,20 @@ class LSTMGNN(nn.Module):
 
         social_seq_emb= F.embedding(input,social_embedding)
 
-        ####long-term temporal influence
-        source_emb = cas_seq_emb[:, 0, :]
-        L_cas_emb = self.long_term_att(source_emb, cas_seq_emb, cas_seq_emb, mask= mask.cuda())
+        noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb, social_seq_emb,diff_model)  # 向embedding中加入了噪声
+        social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
+        cas_model_output = cas_reverse_model(noise_cas_emb,ts)
 
-        ####short-term temporal influence
-        user_cas_gru, _ = self.past_gru(cas_seq_emb)
-        user_cas_lstm, _ = self.past_lstm(cas_seq_emb)
-        S_cas_emb = self.short_term_att(user_cas_gru, user_cas_lstm, user_cas_lstm, mask=mask.cuda())
+        social_recons = diff_model.get_reconstruct_loss(social_seq_emb, social_model_output, pt)
+        cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb, cas_model_output, pt)
+        recons_loss = (social_recons + cas_recons) / 2
+        user_seq_emb=self.fus(social_model_output,cas_model_output)
+        att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
+        prediction=self.linear1(att_out)
 
-        LS_cas_emb = torch.cat([cas_seq_emb, L_cas_emb, S_cas_emb], -1)
-        LS_cas_emb = self.linear(LS_cas_emb)
-
-        output = self.past_multi_att(LS_cas_emb, LS_cas_emb, LS_cas_emb, mask) #output是cas embedding，HG_Uemb是用户embedding
-
-        ####future cascade
-        future_embs = F.embedding(label, HG_Uemb)
-        future_output = self.future_multi_att(future_embs, future_embs, future_embs, mask=mask_label.cuda())
-        ####future cascade
-        short_emb = self.conv(cas_seq_emb)
-
-        '''SSL loss'''
-        graph_ssl_loss = self.hierarchical_ssl(self.self_supervised_gating(HG_Uemb, 0), self.H_Item)
-        graph_ssl_loss += self.hierarchical_ssl(self.self_supervised_gating(HG_Uemb, 1), self.H_User)
-
-        seq_ssl_loss = self.seq2seq_ssl(L_cas_emb, future_output, S_cas_emb, short_emb)
-    
-        '''Prediction'''
-        pre_y = torch.matmul(output, torch.transpose(HG_Uemb, 1, 0))
         mask = get_previous_user_mask(input, self.n_node)
 
-        return (pre_y + mask).view(-1, pre_y.size(-1)).cuda(), graph_ssl_loss, seq_ssl_loss
+        return (prediction + mask).view(-1, prediction.size(-1)).cuda(),recons_loss
 
     def model_prediction(self, input):
 
@@ -372,6 +273,19 @@ class LSTMGNN(nn.Module):
         mask = get_previous_user_mask(input, self.n_node)
 
         return (pre_y + mask).view(-1, pre_y.size(-1)).cuda()
+
+    def apply_noise(self, user_emb, item_emb, diff_model):
+        # cat_emb shape: (batch_size*3, emb_size)
+        emb_size = user_emb.shape[0]
+        ts, pt = diff_model.sample_timesteps(emb_size, 'uniform')
+        # ts_ = torch.tensor([self.config['steps'] - 1] * cat_emb.shape[0]).to(cat_emb.device)
+
+        # add noise to users
+        user_noise = torch.randn_like(user_emb)
+        item_noise = torch.randn_like(item_emb)
+        user_noise_emb = diff_model.q_sample(user_emb, ts, user_noise)
+        item_noise_emb = diff_model.q_sample(item_emb, ts, item_noise)
+        return user_noise_emb, item_noise_emb, ts, pt
 
 
 

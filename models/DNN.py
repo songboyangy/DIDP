@@ -66,41 +66,43 @@ class DNN(nn.Module):
         self.emb_layer.weight.data.normal_(0.0, std)
         self.emb_layer.bias.data.normal_(0.0, 0.001)
 
-    # def forward(self, x, timesteps):
-    #     time_emb = timestep_embedding(timesteps, self.time_emb_dim).to(x.device)
-    #     emb = self.emb_layer(time_emb)
-    #     if self.norm:
-    #         x = F.normalize(x)
-    #     x = self.drop(x)
-
-    #     h = torch.cat([x, emb], dim=-1)
-
-    #     for i, layer in enumerate(self.in_layers):
-    #         h = layer(h)
-    #         h = torch.tanh(h)
-    #     for i, layer in enumerate(self.out_layers):
-    #         h = layer(h)
-    #         if i != len(self.out_layers) - 1:
-    #             h = torch.tanh(h)
-    #     return h
-
-    def forward(self, noise_emb, con_emb, timesteps):
-        time_emb = timestep_embedding(timesteps, self.time_emb_dim).to(noise_emb.device)
+    def forward(self, x, timesteps):
+        time_emb = timestep_embedding(timesteps, self.time_emb_dim).to(x.device)
         emb = self.emb_layer(time_emb)
         if self.norm:
-            noise_emb = F.normalize(noise_emb)
-        noise_emb = self.drop(noise_emb)
+            x = F.normalize(x)
+        x = self.drop(x)
 
-        all_emb = torch.cat([noise_emb, emb, con_emb], dim=-1)
+        h = torch.cat([x, emb], dim=-1)
 
         for i, layer in enumerate(self.in_layers):
-            all_emb = layer(all_emb)
-            all_emb = torch.tanh(all_emb)
+            h = layer(h)
+            h = torch.tanh(h)
         for i, layer in enumerate(self.out_layers):
-            all_emb = layer(all_emb)
+            h = layer(h)
             if i != len(self.out_layers) - 1:
-                all_emb = torch.tanh(all_emb)
-        return all_emb
+                h = torch.tanh(h)
+        return h
+
+    # def forward(self, noise_emb, con_emb, timesteps):
+    #     time_emb = timestep_embedding(timesteps, self.time_emb_dim).to(noise_emb.device)
+    #     emb = self.emb_layer(time_emb)
+    #     if self.norm:
+    #         noise_emb = F.normalize(noise_emb)
+    #     noise_emb = self.drop(noise_emb)
+    #
+    #     all_emb = torch.cat([noise_emb, emb, con_emb], dim=-1)
+    #
+    #     for i, layer in enumerate(self.in_layers):
+    #         all_emb = layer(all_emb)
+    #
+    #         all_emb = torch.tanh(all_emb)
+    #
+    #     for i, layer in enumerate(self.out_layers):
+    #         all_emb = layer(all_emb)
+    #         if i != len(self.out_layers) - 1:
+    #             all_emb = torch.tanh(all_emb)
+    #     return all_emb
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
@@ -123,3 +125,4 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     if dim % 2:
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     return embedding
+

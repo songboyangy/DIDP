@@ -8,6 +8,9 @@ from utils.parsers import parser
 from utils.Metrics import Metrics
 from utils.EarlyStopping import *
 from utils.graphConstruct import ConHypergraph,ConRelationGraph
+from models.DNN import DNN
+import models.diffusion_process as gd
+from torch import nn, optim
 
 
 metric = Metrics()
@@ -29,12 +32,16 @@ def get_performance(crit, pred, gold):
     n_correct = n_correct.masked_select(gold.ne(Constants.PAD).data).sum().float()
     return loss, n_correct
 
-def model_training(model, train_loader,social_graph, epoch):
+def model_training(model, train_loader,social_graph, epoch,opt,social_reverse_model,cas_reverse_model,diffusion_model):
     ''' model training '''
     torch.autograd.set_detect_anomaly(True)
     total_loss = 0.0
     n_total_words = 0.0
     n_total_correct = 0.0
+
+
+
+
 
     print('start training: ', datetime.datetime.now())
     # training
@@ -51,13 +58,13 @@ def model_training(model, train_loader,social_graph, epoch):
             cascade_time = trans_to_cuda(cascade_time.long())
             label_time = trans_to_cuda(label_time.long())
 
-            pred, ssl_loss, ss_loss2 = model(cascade_item, tar)
+            pred, recons_loss = model(cascade_item, tar,social_graph,diffusion_model,social_reverse_model,cas_reverse_model)
             loss, n_correct = get_performance(model.loss_function, pred, tar)
+            loss=(1-opt.alpha)*loss+opt.alpha*recons_loss
 
             if torch.isinf(loss).any():
                 print(0)
 
-            loss = loss + opt.beta * ssl_loss + opt.beta2 * ss_loss2
 
             loss.backward()
             model.optimizer.step()
@@ -118,13 +125,13 @@ def model_testing(model, test_loader,social_graph, k_list=[10, 50, 100]):
 
         return scores, n_correct/n_total_words
 
-def train_test(epoch, model, train_loader, val_loader, test_loader,social_graph):
-
-    total_loss, accuracy = model_training(model, train_loader,social_graph, epoch)
-    val_scores, val_accuracy = model_testing(model, val_loader,social_graph)
-    test_scores, test_accuracy = model_testing(model, test_loader,social_graph)
-
-    return total_loss, val_scores, test_scores, val_accuracy.item(), test_accuracy.item()
+# def train_test(epoch, model, train_loader, val_loader, test_loader,social_graph):
+#
+#     total_loss, accuracy = model_training(model, train_loader,social_graph, epoch)
+#     val_scores, val_accuracy = model_testing(model, val_loader,social_graph)
+#     test_scores, test_accuracy = model_testing(model, test_loader,social_graph)
+#
+#     return total_loss, val_scores, test_scores, val_accuracy.item(), test_accuracy.item()
 
 def main(data_path, seed=2023):
 
@@ -160,6 +167,16 @@ def main(data_path, seed=2023):
 
     # ========= Building Model =========#
     model = trans_to_cuda(LSTMGNN(hypergraphs=[HG_Item, HG_User], args = opt, dropout=opt.dropout))
+    social_reverse_model=DNN(opt.embSize,opt.embSize,opt.embSize)
+    cas_reverse_model=DNN(opt.embSize,opt.embSize,opt.embSize)
+    if opt.mean_type == 'x0':
+        mean_type = gd.ModelMeanType.START_X
+    elif opt.mean_type == 'eps':
+        mean_type = gd.ModelMeanType.EPSILON
+    else:
+        raise ValueError("Unimplemented mean type %s" % opt.mean_type)
+    diffusion_model = gd.GaussianDiffusion(opt, mean_type, opt.noise_schedule, opt.noise_scale, opt.noise_min, opt.noise_max,
+                                           opt.steps, opt.device).to(opt.device)
 
     # ========= Metrics =========#
     top_K = [10, 50, 100]
@@ -171,7 +188,10 @@ def main(data_path, seed=2023):
     validation_history = 0.0
 
     for epoch in range(opt.epoch):
-        total_loss, val_scores, test_scores, val_accuracy, test_accuracy = train_test(epoch, model, train_loader, val_loader, test_loader,social_graph)
+        # total_loss, val_scores, test_scores, val_accuracy, test_accuracy = train_test(epoch, model, train_loader, val_loader, test_loader,social_graph)
+        total_loss, accuracy = model_training(model, train_loader, social_graph, epoch,opt=opt,social_reverse_model=social_reverse_model,cas_reverse_model=cas_reverse_model,diffusion_model=diffusion_model)
+        val_scores, val_accuracy = model_testing(model, val_loader, social_graph)
+        test_scores, test_accuracy = model_testing(model, test_loader, social_graph)
 
         if validation_history <= sum(val_scores.values()):
             validation_history = sum(val_scores.values())
