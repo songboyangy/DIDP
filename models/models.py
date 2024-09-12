@@ -8,7 +8,7 @@ import torch.nn.init as init
 from torch_geometric.nn import GCNConv
 from Optim import ScheduledOptim
 
-from TransformerBlock import TransformerBlock
+from models.TransformerBlock import TransformerBlock
 from models.ConvBlock import *
 
 '''To GPU'''
@@ -118,7 +118,7 @@ class LSTMGNN(nn.Module):
         self.H_Item = hypergraphs[0]   
         self.H_User =hypergraphs[1]
 
-        self.gnn = GraphNN(self.n_node, self.initial_feature, dropout=dropout)
+        self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout)
         self.fus = Fusion(self.emb_size)
         self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8)
 
@@ -189,7 +189,7 @@ class LSTMGNN(nn.Module):
 
         return u_emb_c2
 
-    def forward(self, input, label,socail_graph,diff_model,social_reverse_model,cas_reverse_model):
+    def forward(self, input, label,social_graph,diff_model,social_reverse_model,cas_reverse_model):
 
         mask = (input == 0)
         mask_label = (label == 0)
@@ -200,7 +200,7 @@ class LSTMGNN(nn.Module):
         '''past cascade embeddding'''
         cas_seq_emb = F.embedding(input, HG_Uemb)
 
-        social_embedding=self.dropout(self.gnn(socail_graph))
+        social_embedding=self.dropout(self.gnn(social_graph))
 
         social_seq_emb= F.embedding(input,social_embedding)
 
@@ -216,10 +216,11 @@ class LSTMGNN(nn.Module):
         prediction=self.linear1(att_out)
 
         mask = get_previous_user_mask(input, self.n_node)
+        result = (prediction + mask).view(-1, prediction.size(-1)).to(self.opt.device)
 
-        return (prediction + mask).view(-1, prediction.size(-1)).cuda(),recons_loss
+        return result,recons_loss
 
-    def model_prediction(self, input,socail_graph,diff_model,social_reverse_model,cas_reverse_model):
+    def model_prediction(self, input,social_graph,diff_model,social_reverse_model,cas_reverse_model):
 
         mask = (input == 0)
 
@@ -229,7 +230,7 @@ class LSTMGNN(nn.Module):
         '''cascade embeddding'''
         cas_seq_emb = F.embedding(input, HG_Uemb)
 
-        social_embedding = self.dropout(self.gnn(socail_graph))
+        social_embedding = self.dropout(self.gnn(social_graph))
 
         social_seq_emb = F.embedding(input, social_embedding)
 
@@ -242,8 +243,9 @@ class LSTMGNN(nn.Module):
         prediction = self.linear1(att_out)
 
         mask = get_previous_user_mask(input, self.n_node)
+        result = (prediction + mask).view(-1, prediction.size(-1)).to(self.opt.device)
 
-        return (prediction + mask).view(-1, prediction.size(-1)).cuda()
+        return result
 
 
 

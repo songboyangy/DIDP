@@ -34,9 +34,8 @@ def get_performance(crit, pred, gold):
     return loss, n_correct
 
 
-def model_training(model, train_loader,val_loader,test_loader, social_graph, opt, social_reverse_model, cas_reverse_model, diffusion_model):
+def model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model, diffusion_model):
     ''' model training '''
-    #torch.autograd.set_detect_anomaly(True)
     model.train()
     social_reverse_model.train()
     cas_reverse_model.train()
@@ -61,47 +60,41 @@ def model_training(model, train_loader,val_loader,test_loader, social_graph, opt
 
         # Training loop
         model.train()
-        with tqdm(total=len(train_loader)) as t:
-            for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(train_loader):
-                n_words = label.data.ne(Constants.PAD).sum().float().item()
-                n_total_words += n_words
+        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(
+                tqdm(train_loader, total=len(train_loader))):
+            n_words = label.data.ne(Constants.PAD).sum().float().item()
+            n_total_words += n_words
 
-                model.zero_grad()
-                cascade_item = trans_to_cuda(cascade_item.long())
-                tar = trans_to_cuda(label.long())
-                cascade_time = trans_to_cuda(cascade_time.long())
-                label_time = trans_to_cuda(label_time.long())
+            # model.zero_grad()
+            cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
+            tar = trans_to_cuda(label.long(), device_id=opt.device)
+            cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
+            label_time = trans_to_cuda(label_time.long(), device_id=opt.device)
 
-                pred, recons_loss = model(cascade_item, tar, social_graph, diffusion_model, social_reverse_model,
-                                          cas_reverse_model)
-                loss, n_correct = get_performance(model.loss_function, pred, tar)
-                loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
+            pred, recons_loss = model(cascade_item, tar, social_graph, diffusion_model, social_reverse_model,
+                                      cas_reverse_model)
+            loss, n_correct = get_performance(model.loss_function, pred, tar)
+            loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
 
-                if torch.isinf(loss).any():
-                    print(0)
-                opt_model.zero_grad()
-                opt_social_dnn.zero_grad()
-                opt_cas_dnn.zero_grad()
+            if torch.isinf(loss).any():
+                print(0)
+            opt_model.zero_grad()
+            opt_social_dnn.zero_grad()
+            opt_cas_dnn.zero_grad()
 
-                loss.backward()
+            loss.backward()
 
-                opt_social_dnn.step()
-                opt_cas_dnn.step()
-                opt_model.step()
-                # model.optimizer.step()
-                # model.optimizer.update_learning_rate()
-                #
-                # t.set_description(desc="Epoch %i" % epoch)
-                # t.set_postfix(steps=step, loss=loss.data.item())
-                # t.update(1)
+            opt_social_dnn.step()
+            opt_cas_dnn.step()
+            opt_model.step()
 
-                total_loss += loss.item()
-                n_total_correct += n_correct
+            total_loss += loss.item()
+            n_total_correct += n_correct
 
-            print('\tTotal Loss:\t%.3f' % total_loss)
+        print('\tTotal Loss:\t%.3f' % total_loss)
 
-        val_scores, val_accuracy = model_testing(model, val_loader, social_graph)
-        test_scores, test_accuracy = model_testing(model, test_loader, social_graph)
+        val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model)
+        test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model)
 
         if validation_history <= sum(val_scores.values()):
             validation_history = sum(val_scores.values())
@@ -133,8 +126,7 @@ def model_training(model, train_loader,val_loader,test_loader, social_graph, opt
 
     return best_results
 
-
-def model_testing(model, test_loader, social_graph,social_reverse_model, cas_reverse_model, diffusion_model, k_list=[10, 50, 100]):
+def model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model, k_list=[10, 50, 100]):
     ''' Epoch operation in evaluation phase '''
     scores = {}
     for k in k_list:
@@ -150,9 +142,9 @@ def model_testing(model, test_loader, social_graph,social_reverse_model, cas_rev
 
     with torch.no_grad():
         for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(test_loader):
-            cascade_item = trans_to_cuda(cascade_item.long())
-            cascade_time = trans_to_cuda(cascade_time.long())
-            y_pred = model.model_prediction(cascade_item)
+            cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
+            cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
+            y_pred = model.model_prediction(cascade_item,social_graph,diffusion_model,social_reverse_model,cas_reverse_model)
 
             y_pred = y_pred.detach().cpu()
             tar = label.view(-1).detach().cpu()
@@ -175,10 +167,8 @@ def model_testing(model, test_loader, social_graph,social_reverse_model, cas_rev
 
         return scores, n_correct / n_total_words
 
-
 def main(data_path, seed=2023):
     init_seeds(seed)
-
 
     if opt.preprocess:
         Split_data(data_path, train_rate=0.8, valid_rate=0.1, load_dict=False)
@@ -199,12 +189,14 @@ def main(data_path, seed=2023):
 
     opt.n_node = user_size
     HG_Item, HG_User = ConHypergraph(opt.data_name, opt.n_node, opt.window)
-    HG_Item = trans_to_cuda(HG_Item)
-    HG_User = trans_to_cuda(HG_User)
+    HG_Item = trans_to_cuda(HG_Item, device_id=opt.device)
+    HG_User = trans_to_cuda(HG_User, device_id=opt.device)
 
-    model = trans_to_cuda(LSTMGNN(hypergraphs=[HG_Item, HG_User], args=opt, dropout=opt.dropout))
-    social_reverse_model = DNN(opt.embSize, opt.embSize, opt.embSize)
-    cas_reverse_model = DNN(opt.embSize, opt.embSize, opt.embSize)
+    model = trans_to_cuda(LSTMGNN(hypergraphs=[HG_Item, HG_User], args=opt, dropout=opt.dropout), device_id=opt.device)
+    output_dims = [opt.embSize] + [opt.embSize]
+    input_dims = output_dims[::-1]
+    social_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
+    cas_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
 
     if opt.mean_type == 'x0':
         mean_type = gd.ModelMeanType.START_X
@@ -214,10 +206,10 @@ def main(data_path, seed=2023):
         raise ValueError("Unimplemented mean type %s" % opt.mean_type)
 
     diffusion_model = gd.GaussianDiffusion(opt, mean_type, opt.noise_schedule, opt.noise_scale, opt.noise_min,
-                                           opt.noise_max,
-                                           opt.steps, opt.device).to(opt.device)
+                                           opt.noise_max, opt.steps, opt.device).to(opt.device)
 
-    best_results = model_training(model, train_loader,val_loader,test_loader, social_graph, opt, social_reverse_model, cas_reverse_model,
+    best_results = model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model,
                                   diffusion_model)
 if __name__ == "__main__":
     main(opt.data_name, seed=2023)
+
