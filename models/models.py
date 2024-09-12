@@ -6,6 +6,8 @@ from torch import nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch_geometric.nn import GCNConv
+from triton.language import tensor
+
 from Optim import ScheduledOptim
 
 from models.TransformerBlock import TransformerBlock
@@ -122,6 +124,11 @@ class LSTMGNN(nn.Module):
         self.fus = Fusion(self.emb_size)
         self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8)
 
+        ### channel self-gating parameters
+        self.weights = nn.ParameterList(
+            [nn.Parameter(torch.zeros(self.emb_size, self.emb_size)) for _ in range(self.n_channel)])
+        self.bias = nn.ParameterList([nn.Parameter(torch.zeros(1, self.emb_size)) for _ in range(self.n_channel)])
+
 
         ###### user embedding
         self.user_embedding = nn.Embedding(self.n_node, self.emb_size, padding_idx=0)
@@ -203,6 +210,8 @@ class LSTMGNN(nn.Module):
         social_embedding=self.dropout(self.gnn(social_graph))
 
         social_seq_emb= F.embedding(input,social_embedding)
+        tensor_size=social_seq_emb.size()
+        #下面的过程确实需要修改，需要将emd展开成二维的，这也是最简单的方法，展开成二维之后，再重塑成三维的
 
         noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb, social_seq_emb,diff_model)  # 向embedding中加入了噪声
         social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传

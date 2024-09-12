@@ -193,7 +193,7 @@ class GaussianDiffusion(nn.Module):
             return t, pt
 
         elif method == 'uniform':  # uniform sampling
-            t = th.randint(0, self.steps, (batch_size,), device=world.device).long()
+            t = th.randint(0, self.steps, (batch_size,), device=self.config.device).long()
             pt = th.ones_like(t).float()
 
             return t, pt
