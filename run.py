@@ -45,7 +45,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
 
     best_results = {}
     top_K = [10, 50, 100]
-    validation_history = 1000000
+    validation_history = 0
     opt_model = optim.Adam(model.parameters(), lr=opt.lr)
     opt_social_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
     opt_cas_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
@@ -58,6 +58,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         total_loss = 0.0
         n_total_words = 0.0
         n_total_correct = 0.0
+        recons_loss_list=[]
         logger.info(f'Epoch {epoch} start training:')
 
         model.train()
@@ -71,8 +72,12 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             label_time = trans_to_cuda(label_time.long(), device_id=opt.device)
 
             pred, recons_loss = model(cascade_item, tar, social_graph, diffusion_model, social_reverse_model, cas_reverse_model)
+            recons_loss_list.append(recons_loss.item())
             loss, n_correct = get_performance(loss_function, pred, tar)
-            loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
+            #loss应该是有问题的,loss出现了严重的不平衡问题
+            #loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
+            loss=loss/n_words
+            loss =  loss +  recons_loss
 
             if torch.isinf(loss).any():
                 logger.warning('Encountered NaN/Inf loss')
@@ -95,12 +100,18 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         average_loss = total_loss / len(train_loader)
 
 
+
+
         val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
         test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
-        print(val_scores['loss'])
+        val_loss=val_scores['loss']
+        print(f'Train loss {average_loss} recon loss: {np.mean(np.array(recons_loss_list))} Val loss {val_loss}')
+        val_scores.pop('loss', None)
 
-        if validation_history >= val_scores['loss']:
-            validation_history = val_scores['loss']
+        # if validation_history >= val_scores['loss']:
+        #     validation_history = val_scores['loss']
+        if validation_history <= sum(val_scores.values()):
+            validation_history = sum(val_scores.values())
             for K in top_K:
                 test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)] * 100
                 test_scores['map@' + str(K)] = test_scores['map@' + str(K)] * 100
@@ -114,7 +125,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             # for metric in val_scores.keys():
             #     logger.info('  - %s: %.3f %%', metric, val_scores[metric] * 100)
             val_scores.pop('loss', None)
-            logger.info(f'Epoch {epoch} - Average Train Loss: {average_loss:.3f} Average Val Loss {validation_history:.3f}')
+            logger.info(f'Epoch {epoch} - Average Train Loss: {average_loss:.3f}')
             val_scores_str = '  '.join(f'{metric}: {val_scores[metric] * 100:.3f}%' for metric in val_scores)
             logger.info(" - Validation scores:\n  - (Validation) Accuracy: %.3f %%\n  - %s", 100 * val_accuracy,
                         val_scores_str)
@@ -150,11 +161,13 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
 
     with torch.no_grad():
         for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(test_loader)):
+            n_words = label.data.ne(Constants.PAD).sum().float().item()
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
             y_pred = model.model_prediction(cascade_item,social_graph,diffusion_model,social_reverse_model,cas_reverse_model)
             tar = trans_to_cuda(label.long(), device_id=opt.device)
             loss, n_correct = get_performance(loss_function, y_pred, tar)
+            loss=loss/n_words
             total_loss += loss.item()
 
             y_pred = y_pred.detach().cpu()

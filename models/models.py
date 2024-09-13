@@ -260,8 +260,10 @@ class LSTMGNN(nn.Module):
         social_seq_emb_reshaped = social_seq_emb.view(-1, tensor_size[-1])
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
 
-        noise_social_emb = self.apply_T_noise(social_seq_emb_reshaped, diff_model)
-        noise_cas_emb = self.apply_T_noise(cas_seq_emb_reshaped, diff_model)
+        # noise_social_emb = self.apply_T_noise(social_seq_emb_reshaped, diff_model)
+        # noise_cas_emb = self.apply_T_noise(cas_seq_emb_reshaped, diff_model)
+        noise_social_emb=social_seq_emb_reshaped
+        noise_cas_emb=cas_seq_emb_reshaped
         denoise_social_emb = diff_model.p_sample(social_reverse_model, noise_social_emb, self.args.sampling_steps,
                                                  self.args.sampling_noise)
         denoise_cas_emb = diff_model.p_sample(cas_reverse_model, noise_cas_emb, self.args.sampling_steps,
@@ -292,6 +294,8 @@ class LSTMGNN(nn.Module):
         user_noise_emb = diff_model.q_sample(user_emb, ts, user_noise)
         item_noise_emb = diff_model.q_sample(item_emb, ts, item_noise)
         return user_noise_emb, item_noise_emb, ts, pt
+
+
     def apply_T_noise(self, cat_emb, diff_model):
         t = torch.tensor([self.args.steps - 1] * cat_emb.shape[0]).to(cat_emb.device) #这个T是由steps控制的，前向过程添加噪声的步骤，需要多少噪声
         noise = torch.randn_like(cat_emb)
