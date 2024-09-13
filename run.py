@@ -8,7 +8,7 @@ from utils.parsers import parser
 from utils.Metrics import Metrics
 from utils.EarlyStopping import *
 from utils.graphConstruct import ConHypergraph, ConRelationGraph
-from models.DNN import DNN
+from models.DNN import SDNet
 import models.diffusion_process as gd
 from torch import nn, optim
 import logging
@@ -246,19 +246,12 @@ def main(data_path, seed=2023):
     model = trans_to_cuda(LSTMGNN(hypergraphs=[HG_Item, HG_User], args=opt, dropout=opt.dropout), device_id=opt.device)
     output_dims = [opt.embSize] + [opt.embSize]
     input_dims = output_dims[::-1]
-    social_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
-    cas_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
+    social_reverse_model = trans_to_cuda(SDNet(input_dims, output_dims, opt.embSize), device_id=opt.device)
+    cas_reverse_model = trans_to_cuda(SDNet(input_dims, output_dims, opt.embSize), device_id=opt.device)
 
     logger=setup_logging(f'log/{opt.prefix}.log')
 
-    if opt.mean_type == 'x0':
-        mean_type = gd.ModelMeanType.START_X
-    elif opt.mean_type == 'eps':
-        mean_type = gd.ModelMeanType.EPSILON
-    else:
-        raise ValueError("Unimplemented mean type %s" % opt.mean_type)
-
-    diffusion_model = gd.GaussianDiffusion(opt, mean_type, opt.noise_schedule, opt.noise_scale, opt.noise_min,
+    diffusion_model = gd.DiffusionProcess(opt,  opt.noise_schedule, opt.noise_scale, opt.noise_min,
                                            opt.noise_max, opt.steps, opt.device).to(opt.device)
 
     best_results = model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model,

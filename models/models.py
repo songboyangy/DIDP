@@ -291,8 +291,8 @@ class LSTMGNN(nn.Module):
         # add noise to users
         user_noise = torch.randn_like(user_emb)
         item_noise = torch.randn_like(item_emb)
-        user_noise_emb = diff_model.q_sample(user_emb, ts, user_noise)
-        item_noise_emb = diff_model.q_sample(item_emb, ts, item_noise)
+        user_noise_emb = diff_model.forward_process(user_emb, ts, user_noise)
+        item_noise_emb = diff_model.forward_process(item_emb, ts, item_noise)
         return user_noise_emb, item_noise_emb, ts, pt
 
 

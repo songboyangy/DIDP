@@ -7,13 +7,13 @@ import time
 import torch.nn.functional as F
 
 
-class DNN(nn.Module):
+class SDNet(nn.Module):
     """
     A deep neural network for the reverse diffusion preocess.
     """
 
     def __init__(self, in_dims, out_dims, emb_size, time_type="cat", norm=False, dropout=0.5):
-        super(DNN, self).__init__()
+        super(SDNet, self).__init__()
         self.in_dims = in_dims
         self.out_dims = out_dims
         assert out_dims[0] == in_dims[-1], "In and out dimensions must equal to each other."
@@ -56,6 +56,7 @@ class DNN(nn.Module):
             fan_in = size[1]
             std = np.sqrt(2.0 / (fan_in + fan_out))
             layer.weight.data.normal_(0.0, std)
+
             # Normal Initialization for weights
             layer.bias.data.normal_(0.0, 0.001)
 
@@ -72,37 +73,17 @@ class DNN(nn.Module):
         if self.norm:
             x = F.normalize(x)
         x = self.drop(x)
-
         h = torch.cat([x, emb], dim=-1)
-
         for i, layer in enumerate(self.in_layers):
             h = layer(h)
             h = torch.tanh(h)
+
         for i, layer in enumerate(self.out_layers):
             h = layer(h)
             if i != len(self.out_layers) - 1:
                 h = torch.tanh(h)
-        return h
 
-    # def forward(self, noise_emb, con_emb, timesteps):
-    #     time_emb = timestep_embedding(timesteps, self.time_emb_dim).to(noise_emb.device)
-    #     emb = self.emb_layer(time_emb)
-    #     if self.norm:
-    #         noise_emb = F.normalize(noise_emb)
-    #     noise_emb = self.drop(noise_emb)
-    #
-    #     all_emb = torch.cat([noise_emb, emb, con_emb], dim=-1)
-    #
-    #     for i, layer in enumerate(self.in_layers):
-    #         all_emb = layer(all_emb)
-    #
-    #         all_emb = torch.tanh(all_emb)
-    #
-    #     for i, layer in enumerate(self.out_layers):
-    #         all_emb = layer(all_emb)
-    #         if i != len(self.out_layers) - 1:
-    #             all_emb = torch.tanh(all_emb)
-    #     return all_emb
+        return h
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
