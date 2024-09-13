@@ -11,6 +11,8 @@ from utils.graphConstruct import ConHypergraph, ConRelationGraph
 from models.DNN import DNN
 import models.diffusion_process as gd
 from torch import nn, optim
+import logging
+
 
 metric = Metrics()
 opt = parser.parse_args()
@@ -34,20 +36,20 @@ def get_performance(crit, pred, gold):
     return loss, n_correct
 
 
-def model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model, diffusion_model):
-    ''' model training '''
+def model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model, diffusion_model, logger):
+    ''' Model training '''
     model.train()
     social_reverse_model.train()
     cas_reverse_model.train()
+    loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=Constants.PAD)
 
     best_results = {}
     top_K = [10, 50, 100]
-    validation_history = 0.0
+    validation_history = 1000000
     opt_model = optim.Adam(model.parameters(), lr=opt.lr)
     opt_social_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
     opt_cas_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
 
-    # Initialize best results structure
     for K in top_K:
         best_results['epoch%d' % K] = [0, 0]
         best_results['metric%d' % K] = [0, 0]
@@ -56,28 +58,25 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         total_loss = 0.0
         n_total_words = 0.0
         n_total_correct = 0.0
-        print('start training: ', datetime.datetime.now())
+        logger.info(f'Epoch {epoch} start training:')
 
-        # Training loop
         model.train()
-        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(
-                tqdm(train_loader, total=len(train_loader))):
+        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(train_loader, total=len(train_loader))):
             n_words = label.data.ne(Constants.PAD).sum().float().item()
             n_total_words += n_words
 
-            # model.zero_grad()
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             tar = trans_to_cuda(label.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
             label_time = trans_to_cuda(label_time.long(), device_id=opt.device)
 
-            pred, recons_loss = model(cascade_item, tar, social_graph, diffusion_model, social_reverse_model,
-                                      cas_reverse_model)
-            loss, n_correct = get_performance(model.loss_function, pred, tar)
+            pred, recons_loss = model(cascade_item, tar, social_graph, diffusion_model, social_reverse_model, cas_reverse_model)
+            loss, n_correct = get_performance(loss_function, pred, tar)
             loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
 
             if torch.isinf(loss).any():
-                print(0)
+                logger.warning('Encountered NaN/Inf loss')
+
             opt_model.zero_grad()
             opt_social_dnn.zero_grad()
             opt_cas_dnn.zero_grad()
@@ -91,13 +90,17 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             total_loss += loss.item()
             n_total_correct += n_correct
 
-        print('\tTotal Loss:\t%.3f' % total_loss)
 
-        val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model)
-        test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model)
+        # logger.info('Epoch %d - Total Loss: %.3f', epoch, total_loss)
+        average_loss = total_loss / len(train_loader)
 
-        if validation_history <= sum(val_scores.values()):
-            validation_history = sum(val_scores.values())
+
+        val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
+        test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
+        print(val_scores['loss'])
+
+        if validation_history >= val_scores['loss']:
+            validation_history = val_scores['loss']
             for K in top_K:
                 test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)] * 100
                 test_scores['map@' + str(K)] = test_scores['map@' + str(K)] * 100
@@ -106,27 +109,31 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                 best_results['metric%d' % K][1] = test_scores['map@' + str(K)]
                 best_results['epoch%d' % K][1] = epoch
 
-            print(" -validation scores:-------------------------------------")
-            print('  - (validation) accuracy: {accu:3.3f} %'.format(accu=100 * val_accuracy))
-            for metric in val_scores.keys():
-                print(metric + ' ' + str(val_scores[metric] * 100))
+            # logger.info(" - Validation scores:")
+            # logger.info('  - (Validation) Accuracy: %.3f %%', 100 * val_accuracy)
+            # for metric in val_scores.keys():
+            #     logger.info('  - %s: %.3f %%', metric, val_scores[metric] * 100)
+            val_scores.pop('loss', None)
+            logger.info(f'Epoch {epoch} - Average Train Loss: {average_loss:.3f} Average Val Loss {validation_history:.3f}')
+            val_scores_str = '  '.join(f'{metric}: {val_scores[metric] * 100:.3f}%' for metric in val_scores)
+            logger.info(" - Validation scores:\n  - (Validation) Accuracy: %.3f %%\n  - %s", 100 * val_accuracy,
+                        val_scores_str)
 
-            print(" -test scores:-------------------------------------")
-            print('  - (testing) accuracy: {accu:3.3f} %'.format(accu=100 * test_accuracy))
+            logger.info(" - Test scores:")
+            logger.info('  - (Testing) Accuracy: %.3f %%', 100 * test_accuracy)
             for K in top_K:
-                print('train_loss:\t%.4f\tRecall@%d: %.4f\tMAP@%d: %.4f\tEpoch: %d,  %d' %
-                      (total_loss, K, best_results['metric%d' % K][0], K, best_results['metric%d' % K][1],
-                       best_results['epoch%d' % K][0], best_results['epoch%d' % K][1]))
+                logger.info('  - Train Loss: %.4f, Recall@%d: %.4f, MAP@%d: %.4f, Epoch: %d, %d',
+                            total_loss, K, best_results['metric%d' % K][0], K, best_results['metric%d' % K][1],
+                            best_results['epoch%d' % K][0], best_results['epoch%d' % K][1])
 
         early_stopping = EarlyStopping(patience=opt.patience, verbose=True, path=opt.save_path + 'HGCN.pt')
         early_stopping(-sum(list(val_scores.values())), model)
         if early_stopping.early_stop:
-            print("Early Stopping")
+            logger.info("Early Stopping")
             break
 
     return best_results
-
-def model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model, k_list=[10, 50, 100]):
+def model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function, k_list=[10, 50, 100]):
     ''' Epoch operation in evaluation phase '''
     scores = {}
     for k in k_list:
@@ -135,16 +142,20 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
 
     n_total_words = 0.0
     n_correct = 0.0
-    print('start predicting: ', datetime.datetime.now())
+    #print('start predicting: ', datetime.datetime.now())
     model.eval()
     social_reverse_model.eval()
     cas_reverse_model.eval()
+    total_loss = 0.0
 
     with torch.no_grad():
-        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(test_loader):
+        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(test_loader)):
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
             y_pred = model.model_prediction(cascade_item,social_graph,diffusion_model,social_reverse_model,cas_reverse_model)
+            tar = trans_to_cuda(label.long(), device_id=opt.device)
+            loss, n_correct = get_performance(loss_function, y_pred, tar)
+            total_loss += loss.item()
 
             y_pred = y_pred.detach().cpu()
             tar = label.view(-1).detach().cpu()
@@ -161,11 +172,38 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
                 scores['hits@' + str(k)] += scores_batch['hits@' + str(k)] * scores_len
                 scores['map@' + str(k)] += scores_batch['map@' + str(k)] * scores_len
 
+        average_loss = total_loss / len(test_loader)
+        scores['loss']=average_loss
+
         for k in k_list:
             scores['hits@' + str(k)] = scores['hits@' + str(k)] / n_total_words
             scores['map@' + str(k)] = scores['map@' + str(k)] / n_total_words
 
         return scores, n_correct / n_total_words
+
+
+def setup_logging(log_path):
+    logging.getLogger('matplotlib.font_manager').disabled = True
+    logging.basicConfig(level=logging.INFO)
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    fh = logging.FileHandler(log_path, mode='w')
+    fh.setLevel(logging.DEBUG)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.WARN)
+
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+    return logger
+
+
 
 def main(data_path, seed=2023):
     init_seeds(seed)
@@ -198,6 +236,8 @@ def main(data_path, seed=2023):
     social_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
     cas_reverse_model = trans_to_cuda(DNN(input_dims, output_dims, opt.embSize), device_id=opt.device)
 
+    logger=setup_logging(f'log/{opt.prefix}.log')
+
     if opt.mean_type == 'x0':
         mean_type = gd.ModelMeanType.START_X
     elif opt.mean_type == 'eps':
@@ -209,7 +249,7 @@ def main(data_path, seed=2023):
                                            opt.noise_max, opt.steps, opt.device).to(opt.device)
 
     best_results = model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model,
-                                  diffusion_model)
+                                  diffusion_model,logger)
 if __name__ == "__main__":
     main(opt.data_name, seed=2023)
 

@@ -24,7 +24,7 @@ class DNN(nn.Module):
         self.emb_layer = nn.Linear(self.time_emb_dim, self.time_emb_dim)
 
         if self.time_type == "cat":
-            in_dims_temp = [self.in_dims[0] * 2 + self.time_emb_dim] + self.in_dims[1:]
+            in_dims_temp = [self.in_dims[0] + self.time_emb_dim] + self.in_dims[1:]
         else:
             raise ValueError("Unimplemented timestep embedding type %s" % self.time_type)
         out_dims_temp = self.out_dims
