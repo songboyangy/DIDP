@@ -256,6 +256,17 @@ def main(data_path, seed=2023):
 
     best_results = model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model,
                                   diffusion_model,logger)
+    top_K = [10, 50, 100]
+    logger.info('Best_results：')
+    for K in top_K:
+        # logger.info('  Recall@%d: %.4f, MAP@%d: %.4f, Epoch: %d, %d',
+        #              K, best_results['metric%d' % K][0], K, best_results['metric%d' % K][1],
+        #             best_results['epoch%d' % K][0], best_results['epoch%d' % K][1])
+        logger.info(f'  Recall@{K}: {best_results[f"metric{K}"][0]:.4f}, '
+                    f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, '
+                    f'Epoch: {best_results[f"epoch{K}"][0]}, {best_results[f"epoch{K}"][1]}')
+
+
 if __name__ == "__main__":
     main(opt.data_name, seed=2023)
 

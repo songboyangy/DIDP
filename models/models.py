@@ -122,6 +122,8 @@ class LSTMGNN(nn.Module):
 
         self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout)
         self.fus = Fusion(self.emb_size)
+        self.fus1=Fusion(self.emb_size)
+        self.fus2=Fusion(self.emb_size)
         self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8)
 
         ### channel self-gating parameters
@@ -228,8 +230,11 @@ class LSTMGNN(nn.Module):
 
         social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
-        social_model_output2=social_model_output1+social_seq_emb
-        cas_model_output2=cas_model_output1+cas_seq_emb
+
+        # social_model_output2=social_model_output1+social_seq_emb
+        # cas_model_output2=cas_model_output1+cas_seq_emb
+        social_model_output2 = self.fus1(social_model_output1,social_seq_emb)
+        cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
 
 
         #user_seq_emb=self.fus(social_model_output1,cas_model_output1)
@@ -276,8 +281,10 @@ class LSTMGNN(nn.Module):
         # Reshape back to the original 3D shape
         social_model_output1 = denoise_social_emb.view(batch_size, seq_len, -1)
         cas_model_output1 = denoise_cas_emb.view(batch_size, seq_len, -1)
-        social_model_output2 = social_model_output1 + social_seq_emb
-        cas_model_output2 = cas_model_output1 + cas_seq_emb
+        # social_model_output2 = social_model_output1 + social_seq_emb
+        # cas_model_output2 = cas_model_output1 + cas_seq_emb
+        social_model_output2 = self.fus1(social_model_output1, social_seq_emb)
+        cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
 
         #user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
         user_seq_emb = self.fus(social_model_output2, cas_model_output2)
