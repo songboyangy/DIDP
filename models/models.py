@@ -196,10 +196,10 @@ class LSTMGNN(nn.Module):
 
         return u_emb_c2
 
-    def forward(self, input, label,social_graph,diff_model,social_reverse_model,cas_reverse_model):
+    def forward(self, input, social_graph,diff_model,social_reverse_model,cas_reverse_model):
 
         mask = (input == 0)
-        mask_label = (label == 0)
+
 
         '''structure embeddding'''
         HG_Uemb = self.structure_embed()
@@ -228,9 +228,13 @@ class LSTMGNN(nn.Module):
 
         social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
+        social_model_output2=social_model_output1+social_seq_emb
+        cas_model_output2=cas_model_output1+cas_seq_emb
 
 
-        user_seq_emb=self.fus(social_model_output1,cas_model_output1)
+        #user_seq_emb=self.fus(social_model_output1,cas_model_output1)
+        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
         prediction=self.linear1(att_out)
 
@@ -270,10 +274,13 @@ class LSTMGNN(nn.Module):
                                               self.args.sampling_noise)
 
         # Reshape back to the original 3D shape
-        denoise_social_emb = denoise_social_emb.view(batch_size, seq_len, -1)
-        denoise_cas_emb = denoise_cas_emb.view(batch_size, seq_len, -1)
+        social_model_output1 = denoise_social_emb.view(batch_size, seq_len, -1)
+        cas_model_output1 = denoise_cas_emb.view(batch_size, seq_len, -1)
+        social_model_output2 = social_model_output1 + social_seq_emb
+        cas_model_output2 = cas_model_output1 + cas_seq_emb
 
-        user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
+        #user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
+        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
         att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
         prediction = self.linear1(att_out)
 
