@@ -12,11 +12,11 @@ from models.DNN import SDNet
 import models.diffusion_process as gd
 from torch import nn, optim
 import logging
-
+from utils.utils import set_config
 
 metric = Metrics()
 opt = parser.parse_args()
-
+opt=set_config(opt)
 
 def init_seeds(seed=2023):
     torch.manual_seed(seed)
@@ -42,7 +42,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
     social_reverse_model.train()
     cas_reverse_model.train()
     loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=Constants.PAD)
-    early_stopping = EarlyStopping(patience=opt.patience, verbose=True, path=opt.save_path + 'HGCN.pt')
+    early_stopping = EarlyStopping(patience=opt.patience, verbose=True, path=opt.model_path)
 
     best_results = {}
     top_K = [10, 50, 100]
@@ -74,14 +74,14 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             # pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
             #              cas_reverse_model)
 
-            pred, recons_loss = model(cascade_item,  social_graph, diffusion_model, social_reverse_model, cas_reverse_model)
+            pred, recons_loss,ssl = model(cascade_item,  social_graph, diffusion_model, social_reverse_model, cas_reverse_model)
 
             recons_loss_list.append(recons_loss.item())
             loss, n_correct = get_performance(loss_function, pred, tar)
             #loss应该是有问题的,loss出现了严重的不平衡问题
             #loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
             loss=loss/n_words
-            loss =  loss +  recons_loss
+            loss =  loss +  recons_loss+ opt.ssl_alpha*ssl
 
             if torch.isinf(loss).any():
                 logger.warning('Encountered NaN/Inf loss')
@@ -102,10 +102,6 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
 
         #logger.info('Epoch %d - Total Loss: %.3f', epoch, total_loss)
         average_loss = total_loss / len(train_loader)
-
-
-
-
         val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
         test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
         val_loss=val_scores['loss']
@@ -126,17 +122,16 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
 
             logger.info(f'Epoch {epoch} - Average Train Loss: {average_loss:.3f}')
             val_scores_str = '  '.join(f'{metric}: {val_scores[metric] * 100:.3f}%' for metric in val_scores)
-            logger.info(" - Validation scores:\n  - (Validation) Accuracy: %.3f %%\n  - %s", 100 * val_accuracy,
-                        val_scores_str)
+            logger.info(f" - Validation scores:\n  - (Validation) Accuracy: {100 * val_accuracy:.3f} %\n  - {val_scores_str}")
 
             logger.info(" - Test scores:")
-            logger.info('  - (Testing) Accuracy: %.3f %%', 100 * test_accuracy)
+            logger.info(f'  - (Testing) Accuracy: {100 * test_accuracy:.3f} %')
             for K in top_K:
-                logger.info('  - Train Loss: %.4f, Recall@%d: %.4f, MAP@%d: %.4f, Epoch: %d, %d',
-                            total_loss, K, best_results['metric%d' % K][0], K, best_results['metric%d' % K][1],
-                            best_results['epoch%d' % K][0], best_results['epoch%d' % K][1])
-
-        early_stopping(-sum(list(val_scores.values())), model)
+                logger.info(f'  - Train Loss: {total_loss:.4f}, Recall@{K}: {best_results[f"metric{K}"][0]:.4f}, '
+                            f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, Epoch: {best_results[f"epoch{K}"][0]}, '
+                            f'{best_results[f"epoch{K}"][1]}')
+        model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
+        early_stopping(-sum(list(val_scores.values())), model_list,logger)
         if early_stopping.early_stop:
             logger.info("Early Stopping")
             break
@@ -249,7 +244,7 @@ def main(data_path, seed=2023):
     social_reverse_model = trans_to_cuda(SDNet(input_dims, output_dims, opt.embSize), device_id=opt.device)
     cas_reverse_model = trans_to_cuda(SDNet(input_dims, output_dims, opt.embSize), device_id=opt.device)
 
-    logger=setup_logging(f'log/{opt.prefix}.log')
+    logger=setup_logging(opt.log_path)
 
     diffusion_model = gd.DiffusionProcess(opt,  opt.noise_schedule, opt.noise_scale, opt.noise_min,
                                            opt.noise_max, opt.steps, opt.device).to(opt.device)

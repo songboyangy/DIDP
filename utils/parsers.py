@@ -20,6 +20,8 @@ parser.add_argument('-n_warmup_steps', type=int, default=1000)
 parser.add_argument('-dropout', type=float, default=0.2)
 parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
 parser.add_argument('--prefix', type=str, default='test', help='prefix to name a trial')
+parser.add_argument('--tau', type=float, default=0.5, help='temperature of ssl')
+parser.add_argument('--ssl_alpha', type=float, default=0.01, help='coefficient of ssl')
 #####data process
 parser.add_argument('-train_rate', type=float, default=0.8)
 parser.add_argument('-valid_rate', type=float, default=0.1)

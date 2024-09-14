@@ -219,6 +219,8 @@ class LSTMGNN(nn.Module):
         social_seq_emb_reshaped = social_seq_emb.view(-1, tensor_size[-1])
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
 
+        ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
+
         noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb_reshaped, social_seq_emb_reshaped,diff_model)  # 向embedding中加入了噪声
         social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
         cas_model_output = cas_reverse_model(noise_cas_emb,ts)
@@ -246,7 +248,7 @@ class LSTMGNN(nn.Module):
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
 
-        return result,recons_loss
+        return result,recons_loss,ssl
 
     def model_prediction(self, input, social_graph, diff_model, social_reverse_model, cas_reverse_model):
 
@@ -309,12 +311,27 @@ class LSTMGNN(nn.Module):
         item_noise_emb = diff_model.forward_process(item_emb, ts, item_noise)
         return user_noise_emb, item_noise_emb, ts, pt
 
+    def calc_ssl_sim(self, emb1, emb2, tau, normalization = False):
+        # (emb1, emb2) = (F.normalize(emb1, p=2, dim=0), F.normalize(emb2, p=2, dim=0))\
+        if normalization:
+            emb1 = nn.functional.normalize(emb1, p=2, dim=1, eps=1e-12)
+            emb2 = nn.functional.normalize(emb2, p=2, dim=1, eps=1e-12)
 
-    def apply_T_noise(self, cat_emb, diff_model):
-        t = torch.tensor([self.args.steps - 1] * cat_emb.shape[0]).to(cat_emb.device) #这个T是由steps控制的，前向过程添加噪声的步骤，需要多少噪声
-        noise = torch.randn_like(cat_emb)
-        noise_emb = diff_model.q_sample(cat_emb, t, noise)
-        return noise_emb
+        (emb1_t, emb2_t) = (emb1.t(), emb2.t()) #这个得到他们的转置矩阵
+
+        pos_scores_users = torch.exp(torch.div(F.cosine_similarity(emb1, emb2, dim=1, eps=1e-8), tau))  # Sum by row
+        denominator_scores = torch.mm(emb1, emb2_t)
+        norm_emb1 = torch.norm(emb1, dim=-1)
+        norm_emb2 = torch.norm(emb2, dim=-1)
+        norm_emb = torch.mm(norm_emb1.unsqueeze(1), norm_emb2.unsqueeze(1).t())
+
+        denominator_scores1 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(1)  # Sum by row
+        denominator_scores2 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(0)  # Sum by column
+        # denominator cosine_similarity: above codes
+
+        ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
+        ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
+        return ssl_loss1 + ssl_loss2
 
 
 
