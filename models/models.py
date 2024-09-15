@@ -270,11 +270,12 @@ class LSTMGNN(nn.Module):
         #user_seq_emb = self.fus(cas_seq_emb, cas_seq_emb)
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
 
-        all_user_emb = self.fus(social_embedding, HG_Uemb)
+        #all_user_emb = self.fus(social_embedding, HG_Uemb)
         #all_user_emb=self.linear(torch.cat((social_embedding, HG_Uemb),dim=-1))
 
-        prediction=torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
-        prediction=self.linear2(prediction)
+        # prediction=torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
+        # prediction=self.linear2(prediction)
+        prediction = self.linear1(att_out)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
@@ -325,13 +326,13 @@ class LSTMGNN(nn.Module):
         #user_seq_emb = self.fus(social_model_output2, cas_seq_emb)
         #user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
         att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
-        # prediction = self.linear1(att_out)
+        prediction = self.linear1(att_out)
         #
-        all_user_emb = self.fus(social_embedding, HG_Uemb)
-        #all_user_emb = self.linear(torch.cat((social_embedding, HG_Uemb), dim=-1))
-
-        prediction = torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
-        prediction = self.linear2(prediction)
+        # all_user_emb = self.fus(social_embedding, HG_Uemb)
+        # #all_user_emb = self.linear(torch.cat((social_embedding, HG_Uemb), dim=-1))
+        #
+        # prediction = torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
+        # prediction = self.linear2(prediction)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
