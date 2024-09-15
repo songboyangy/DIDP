@@ -221,7 +221,7 @@ class LSTMGNN(nn.Module):
 
         return u_emb_c2
 
-    def forward(self, input, social_graph,diff_model,social_reverse_model,cas_reverse_model):
+    def forward(self, input, social_graph,diff_model,social_reverse_model,cas_reverse_model,train=True):
 
         mask = (input == 0)
 
@@ -241,32 +241,38 @@ class LSTMGNN(nn.Module):
         #下面的过程确实需要修改，需要将emd展开成二维的，这也是最简单的方法，展开成二维之后，再重塑成三维的
         social_seq_emb_reshaped = social_seq_emb.view(-1, tensor_size[-1])
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
+        if train:
+            ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
+            #noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb_reshaped, social_seq_emb_reshaped,diff_model)  # 向embedding中加入了噪声
+            # noise_social_emb, ts, pt = self.apply_noise1(social_seq_emb_reshaped,diff_model)
+            noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
+            # social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
+            cas_model_output = cas_reverse_model(noise_cas_emb,ts)
 
-        ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
+            # social_recons = diff_model.get_reconstruct_loss(social_seq_emb_reshaped, social_model_output, pt)
+            cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
+            #recons_loss = (social_recons + cas_recons) / 2
+            #recons_loss=torch.mean(recons_loss)
+            recons_loss = torch.mean(cas_recons)
+        else:
+            # social_model_output = diff_model.p_sample(social_reverse_model, social_seq_emb_reshaped, self.args.sampling_steps,
+            #                                          self.args.sampling_noise)
+            cas_model_output = diff_model.p_sample(cas_reverse_model, cas_seq_emb_reshaped, self.args.sampling_steps,
+                                                  self.args.sampling_noise)
 
-        noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb_reshaped, social_seq_emb_reshaped,diff_model)  # 向embedding中加入了噪声
-        #noise_social_emb, ts, pt = self.apply_noise1(social_seq_emb_reshaped,diff_model)
-        #noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
-        social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
-        cas_model_output = cas_reverse_model(noise_cas_emb,ts)
-
-        social_recons = diff_model.get_reconstruct_loss(social_seq_emb_reshaped, social_model_output, pt)
-        cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
-        recons_loss = (social_recons + cas_recons) / 2
-        recons_loss=torch.mean(recons_loss)
         #recons_loss = torch.mean(cas_recons)
 
-        social_model_output1=social_model_output.view(batch_size, seq_len, -1)
+        # social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
 
         # social_model_output2=social_model_output1+social_seq_emb
         # cas_model_output2=cas_model_output1+cas_seq_emb
-        social_model_output2 = self.fus1(social_model_output1,social_seq_emb)
+        # social_model_output2 = self.fus1(social_model_output1,social_seq_emb)
         cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
 
 
-        #user_seq_emb=self.fus(social_model_output2,cas_seq_emb)
-        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        # user_seq_emb=self.fus(social_model_output2,cas_seq_emb)
+        user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
         #user_seq_emb = self.fus(cas_seq_emb, cas_seq_emb)
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
 
@@ -280,8 +286,12 @@ class LSTMGNN(nn.Module):
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
         #result=  F.softmax(result, dim=-1)
+        if train:
+            return result, recons_loss, ssl
+        else:
+            return result
 
-        return result,recons_loss,ssl
+
 
     def model_prediction(self, input, social_graph, diff_model, social_reverse_model, cas_reverse_model):
 

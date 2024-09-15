@@ -43,12 +43,13 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
     cas_reverse_model.train()
     loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=Constants.PAD)
     early_stopping = EarlyStopping(patience=opt.patience, verbose=True, path=opt.model_path)
+    logger.info(opt)
 
     best_results = {}
     top_K = [10, 50, 100]
     validation_history = 0
     opt_model = optim.Adam(model.parameters(), lr=opt.lr)
-    opt_social_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
+    #opt_social_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
     opt_cas_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
 
     for K in top_K:
@@ -87,12 +88,12 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                 logger.warning('Encountered NaN/Inf loss')
 
             opt_model.zero_grad()
-            opt_social_dnn.zero_grad()
+            #opt_social_dnn.zero_grad()
             opt_cas_dnn.zero_grad()
 
             loss.backward()
 
-            opt_social_dnn.step()
+            #opt_social_dnn.step()
             opt_cas_dnn.step()
             opt_model.step()
 
@@ -157,7 +158,7 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
             n_words = label.data.ne(Constants.PAD).sum().float().item()
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
-            y_pred = model.model_prediction(cascade_item,social_graph,diffusion_model,social_reverse_model,cas_reverse_model)
+            y_pred = model(cascade_item,social_graph,diffusion_model,social_reverse_model,cas_reverse_model,train=False)
             # y_pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
             #                                 cas_reverse_model)
             tar = trans_to_cuda(label.long(), device_id=opt.device)
@@ -263,5 +264,6 @@ def main(data_path, seed=2023):
 
 
 if __name__ == "__main__":
-    main(opt.data_name, seed=2023)
+    #原来seed是2023
+    main(opt.data_name, seed=opt.seed)
 
