@@ -160,6 +160,7 @@ class LSTMGNN(nn.Module):
 
         self.linear = nn.Linear(self.emb_size*2, self.emb_size)
         self.linear1=nn.Linear(self.emb_size, self.n_node)
+        self.linear2=nn.Linear(self.n_node, self.n_node)
 
         self.reset_parameters()
 
@@ -244,6 +245,8 @@ class LSTMGNN(nn.Module):
         ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
 
         noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb_reshaped, social_seq_emb_reshaped,diff_model)  # 向embedding中加入了噪声
+        #noise_social_emb, ts, pt = self.apply_noise1(social_seq_emb_reshaped,diff_model)
+        #noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
         social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
         cas_model_output = cas_reverse_model(noise_cas_emb,ts)
 
@@ -251,6 +254,7 @@ class LSTMGNN(nn.Module):
         cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
         recons_loss = (social_recons + cas_recons) / 2
         recons_loss=torch.mean(recons_loss)
+        #recons_loss = torch.mean(cas_recons)
 
         social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
@@ -261,15 +265,16 @@ class LSTMGNN(nn.Module):
         cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
 
 
-        user_seq_emb=self.fus(social_model_output1,cas_model_output1)
-        #user_seq_emb = self.fus(social_model_output2, cas_model_output2)
-        #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
+        #user_seq_emb=self.fus(social_model_output2,cas_seq_emb)
+        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        #user_seq_emb = self.fus(cas_seq_emb, cas_seq_emb)
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
 
         all_user_emb = self.fus(social_embedding, HG_Uemb)
         #all_user_emb=self.linear(torch.cat((social_embedding, HG_Uemb),dim=-1))
 
         prediction=torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
+        prediction=self.linear2(prediction)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
@@ -316,8 +321,9 @@ class LSTMGNN(nn.Module):
         cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
 
         #user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
-        user_seq_emb = self.fus(social_model_output1,cas_model_output1)
-        #user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        user_seq_emb = self.fus(social_model_output2,cas_model_output2)
+        #user_seq_emb = self.fus(social_model_output2, cas_seq_emb)
+        #user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
         att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
         # prediction = self.linear1(att_out)
         #
@@ -325,6 +331,7 @@ class LSTMGNN(nn.Module):
         #all_user_emb = self.linear(torch.cat((social_embedding, HG_Uemb), dim=-1))
 
         prediction = torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
+        prediction = self.linear2(prediction)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
@@ -366,6 +373,19 @@ class LSTMGNN(nn.Module):
         ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
         ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
         return ssl_loss1 + ssl_loss2
+
+    def apply_noise1(self, user_emb, diff_model):
+        # cat_emb shape: (batch_size*3, emb_size)
+        emb_size = user_emb.shape[0]
+        ts, pt = diff_model.sample_timesteps(emb_size, 'uniform')
+        # ts_ = torch.tensor([self.config['steps'] - 1] * cat_emb.shape[0]).to(cat_emb.device)
+
+        # add noise to users
+        user_noise = torch.randn_like(user_emb)
+
+        user_noise_emb = diff_model.forward_process(user_emb, ts, user_noise)
+
+        return user_noise_emb, ts, pt
 
 
 
