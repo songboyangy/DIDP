@@ -28,7 +28,7 @@ parser.add_argument('-valid_rate', type=float, default=0.1)
 
 ###save model
 parser.add_argument('-save_path', default= "./checkpoint/")
-parser.add_argument('-patience', type=int, default=5, help="control the step of early-stopping")
+parser.add_argument('-patience', type=int, default=10, help="control the step of early-stopping")
 # diff reverse params (DNN)
 parser.add_argument('--dims', type=str, default='[200,600]', help='the dims for the DNN')
 parser.add_argument('--act', type=str, default='tanh', help='the activate function for the DNN')

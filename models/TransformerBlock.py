@@ -75,7 +75,7 @@ class PositionalEncoding(nn.Module):
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, input_size, d_k=64, d_v=64, n_heads=2, is_layer_norm=True, attn_dropout=0.1):
+    def __init__(self, input_size,device, d_k=64, d_v=64, n_heads=2, is_layer_norm=True, attn_dropout=0.1):
         super(TransformerBlock, self).__init__()
         self.n_heads = n_heads
         self.d_k = d_k if d_k is not None else input_size
@@ -93,6 +93,7 @@ class TransformerBlock(nn.Module):
         self.W_o = nn.Parameter(torch.Tensor(d_v*n_heads, input_size))
         self.linear1 = nn.Linear(input_size, input_size)
         self.linear2 = nn.Linear(input_size, input_size)
+        self.device=device
 
         self.dropout = nn.Dropout(attn_dropout)
         self.__init_weights__()
@@ -125,7 +126,7 @@ class TransformerBlock(nn.Module):
         Q_K = torch.einsum("bqd,bkd->bqk", Q, K) / (temperature + episilon)
         if mask is not None:
             pad_mask = mask.unsqueeze(dim=-1).expand(-1, -1, K.size(1))
-            mask = torch.triu(torch.ones(pad_mask.size()), diagonal=1).bool().cuda()
+            mask = torch.triu(torch.ones(pad_mask.size()), diagonal=1).bool().to(self.device)
             mask_ = mask + pad_mask
             Q_K = Q_K.masked_fill(mask_, -2**32+1)
 

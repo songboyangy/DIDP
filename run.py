@@ -63,7 +63,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         logger.info(f'Epoch {epoch} start training:')
 
         model.train()
-        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(train_loader, total=len(train_loader))):
+        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(train_loader, total=len(train_loader),ncols=80)):
             n_words = label.data.ne(Constants.PAD).sum().float().item()
             n_total_words += n_words
 
@@ -153,7 +153,7 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
     total_loss = 0.0
 
     with torch.no_grad():
-        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(test_loader)):
+        for step, (cascade_item, label, cascade_time, label_time, cascade_len) in enumerate(tqdm(test_loader,ncols=80)):
             n_words = label.data.ne(Constants.PAD).sum().float().item()
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)

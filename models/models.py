@@ -28,31 +28,52 @@ def trans_to_cpu(variable):
     else:
         return variable
 
-'''Mask previous activated users'''
+# '''Mask previous activated users'''
+# def get_previous_user_mask(seq, user_size):
+#     assert seq.dim() == 2
+#     prev_shape = (seq.size(0), seq.size(1), seq.size(1))
+#     seqs = seq.repeat(1, 1, seq.size(1)).view(seq.size(0), seq.size(1), seq.size(1))
+#     previous_mask = np.tril(np.ones(prev_shape)).astype('float32')
+#     previous_mask = torch.from_numpy(previous_mask)
+#     if seq.is_cuda:
+#         previous_mask = previous_mask.cuda()
+#     masked_seq = previous_mask * seqs.data.float()
+#
+#     # force the 0th dimension (PAD) to be masked
+#     PAD_tmp = torch.zeros(seq.size(0), seq.size(1), 1)
+#     if seq.is_cuda:
+#         PAD_tmp = PAD_tmp.cuda()
+#     masked_seq = torch.cat([masked_seq, PAD_tmp], dim=2)
+#     ans_tmp = torch.zeros(seq.size(0), seq.size(1), user_size)
+#     if seq.is_cuda:
+#         ans_tmp = ans_tmp.cuda()
+#     masked_seq = ans_tmp.scatter_(2, masked_seq.long(), float('-inf'))
+#     return masked_seq.cuda()
+
+
 def get_previous_user_mask(seq, user_size):
     assert seq.dim() == 2
+    device = seq.device  # 获取 seq 的设备
+
     prev_shape = (seq.size(0), seq.size(1), seq.size(1))
     seqs = seq.repeat(1, 1, seq.size(1)).view(seq.size(0), seq.size(1), seq.size(1))
+
+    # 使用 numpy 生成 lower-triangular mask，并将其转为 PyTorch 张量
     previous_mask = np.tril(np.ones(prev_shape)).astype('float32')
-    previous_mask = torch.from_numpy(previous_mask)
-    if seq.is_cuda:
-        previous_mask = previous_mask.cuda()
+    previous_mask = torch.from_numpy(previous_mask).to(device)  # 移动到与 seq 相同的设备
+
+    # 应用 mask
     masked_seq = previous_mask * seqs.data.float()
 
-    # force the 0th dimension (PAD) to be masked
-    PAD_tmp = torch.zeros(seq.size(0), seq.size(1), 1)
-    if seq.is_cuda:
-        PAD_tmp = PAD_tmp.cuda()
+    # 强制将 0 维 (PAD) 设置为掩码
+    PAD_tmp = torch.zeros(seq.size(0), seq.size(1), 1).to(device)  # 移动到与 seq 相同的设备
     masked_seq = torch.cat([masked_seq, PAD_tmp], dim=2)
-    ans_tmp = torch.zeros(seq.size(0), seq.size(1), user_size)
-    if seq.is_cuda:
-        ans_tmp = ans_tmp.cuda()
+
+    # 创建一个全零的张量并将 masked_seq 散布到它上面
+    ans_tmp = torch.zeros(seq.size(0), seq.size(1), user_size).to(device)  # 移动到与 seq 相同的设备
     masked_seq = ans_tmp.scatter_(2, masked_seq.long(), float('-inf'))
-    return masked_seq.cuda()
 
-
-
-
+    return masked_seq.to(device)
 
 
 class Fusion(nn.Module):
@@ -75,7 +96,7 @@ class Fusion(nn.Module):
         return out
 
 class GraphNN(nn.Module):
-    def __init__(self, ntoken, ninp, dropout=0.5, is_norm=True):
+    def __init__(self, ntoken, ninp,device, dropout=0.5, is_norm=True):
         super(GraphNN, self).__init__()
         self.embedding = nn.Embedding(ntoken, ninp, padding_idx=0)
         # in:inp,out:nip*2
@@ -87,19 +108,20 @@ class GraphNN(nn.Module):
         if self.is_norm:
             self.batch_norm = torch.nn.BatchNorm1d(ninp)
         self.init_weights()
+        self.device=device
 
     def init_weights(self):
         init.xavier_normal_(self.embedding.weight)
 
     def forward(self, graph):
-        graph_edge_index = graph.edge_index.cuda()
+        graph_edge_index = graph.edge_index.to(self.device)
         graph_x_embeddings = self.gnn1(self.embedding.weight, graph_edge_index)
         graph_x_embeddings = self.dropout(graph_x_embeddings)
         graph_output = self.gnn2(graph_x_embeddings, graph_edge_index)
         if self.is_norm:
             graph_output = self.batch_norm(graph_output)
         # print(graph_output.shape)
-        return graph_output.cuda()
+        return graph_output.to(self.device)
 
 class LSTMGNN(nn.Module):
     def __init__(self, hypergraphs, args, dropout=0.2):
@@ -120,11 +142,11 @@ class LSTMGNN(nn.Module):
         self.H_Item = hypergraphs[0]   
         self.H_User =hypergraphs[1]
 
-        self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout)
+        self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout,device=args.device)
         self.fus = Fusion(self.emb_size)
         self.fus1=Fusion(self.emb_size)
         self.fus2=Fusion(self.emb_size)
-        self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8)
+        self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8,device=args.device)
 
         ### channel self-gating parameters
         self.weights = nn.ParameterList(
@@ -136,7 +158,7 @@ class LSTMGNN(nn.Module):
         self.user_embedding = nn.Embedding(self.n_node, self.emb_size, padding_idx=0)
 
 
-        self.linear = nn.Linear(self.emb_size*3, self.emb_size)
+        self.linear = nn.Linear(self.emb_size*2, self.emb_size)
         self.linear1=nn.Linear(self.emb_size, self.n_node)
 
         self.reset_parameters()
@@ -239,14 +261,19 @@ class LSTMGNN(nn.Module):
         cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
 
 
-        #user_seq_emb=self.fus(social_model_output1,cas_model_output1)
-        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        user_seq_emb=self.fus(social_model_output1,cas_model_output1)
+        #user_seq_emb = self.fus(social_model_output2, cas_model_output2)
         #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        prediction=self.linear1(att_out)
+
+        all_user_emb = self.fus(social_embedding, HG_Uemb)
+        #all_user_emb=self.linear(torch.cat((social_embedding, HG_Uemb),dim=-1))
+
+        prediction=torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
+        #result=  F.softmax(result, dim=-1)
 
         return result,recons_loss,ssl
 
@@ -289,12 +316,19 @@ class LSTMGNN(nn.Module):
         cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
 
         #user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
-        user_seq_emb = self.fus(social_model_output2, cas_model_output2)
+        user_seq_emb = self.fus(social_model_output1,cas_model_output1)
+        #user_seq_emb = self.fus(social_model_output2, cas_model_output2)
         att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
-        prediction = self.linear1(att_out)
+        # prediction = self.linear1(att_out)
+        #
+        all_user_emb = self.fus(social_embedding, HG_Uemb)
+        #all_user_emb = self.linear(torch.cat((social_embedding, HG_Uemb), dim=-1))
+
+        prediction = torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
+        #result = F.softmax(result, dim=-1)
 
         return result
 
