@@ -180,8 +180,8 @@ class LSTMGNN(nn.Module):
         self.linear1=nn.Linear(self.emb_size, self.n_node)
         self.linear2=nn.Linear(self.n_node, self.n_node)
 
-        self.social_mlp=MLP(self.emb_size,self.emb_size/2,self.emb_size)
-        self.cas_mlp=MLP(self.emb_size,self.emb_size/2,self.emb_size)
+        self.social_mlp=MLP(self.emb_size,int(self.emb_size/2),self.emb_size)
+        self.cas_mlp=MLP(self.emb_size,int(self.emb_size/2),self.emb_size)
 
         self.reset_parameters()
 
@@ -260,6 +260,7 @@ class LSTMGNN(nn.Module):
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
         if train:
             ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
+            #ssl=self.social_cas_ssl(social_seq_emb_reshaped,cas_seq_emb_reshaped)
 
             noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
 
@@ -324,6 +325,12 @@ class LSTMGNN(nn.Module):
         ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
         ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
         return ssl_loss1 + ssl_loss2
+
+    def social_cas_ssl(self,social_seq_emb,cas_seq_emb):
+        social_seq_emb=self.social_mlp(social_seq_emb)
+        cas_seq_emb=self.cas_mlp(cas_seq_emb)
+        ssl=self.calc_ssl_sim(social_seq_emb,cas_seq_emb,self.args.tau)
+        return ssl
 
     def apply_noise1(self, user_emb, diff_model):
         # cat_emb shape: (batch_size*3, emb_size)
