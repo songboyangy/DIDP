@@ -83,6 +83,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             #loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
             loss=loss/n_words
             loss =  loss +  recons_loss+ opt.ssl_alpha*ssl
+            #loss = loss + recons_loss
 
             if torch.isinf(loss).any():
                 logger.warning('Encountered NaN/Inf loss')

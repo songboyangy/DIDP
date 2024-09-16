@@ -95,6 +95,24 @@ class Fusion(nn.Module):
         out = torch.sum(emb_score * emb, dim=0)
         return out
 
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(MLP, self).__init__()
+        # 定义第一层全连接层，输入大小为 input_size，输出大小为 hidden_size
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        # 定义第二层全连接层，输入大小为 hidden_size，输出大小为 output_size
+        self.fc2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        # 第一层：线性变换后加上ReLU激活函数
+        x = F.relu(self.fc1(x))
+        # 第二层：线性变换后直接输出
+        x = self.fc2(x)
+        return x
+
+
+
 class GraphNN(nn.Module):
     def __init__(self, ntoken, ninp,device, dropout=0.5, is_norm=True):
         super(GraphNN, self).__init__()
@@ -162,12 +180,11 @@ class LSTMGNN(nn.Module):
         self.linear1=nn.Linear(self.emb_size, self.n_node)
         self.linear2=nn.Linear(self.n_node, self.n_node)
 
+        self.social_mlp=MLP(self.emb_size,self.emb_size/2,self.emb_size)
+        self.cas_mlp=MLP(self.emb_size,self.emb_size/2,self.emb_size)
+
         self.reset_parameters()
 
-        # #### optimizer and loss function
-        # self.optimizerAdam = torch.optim.Adam(self.parameters(), betas=(0.9, 0.98), eps=1e-09)
-        # self.optimizer = ScheduledOptim(self.optimizerAdam, self.emb_size, args.n_warmup_steps)
-        # self.loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=0)
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.emb_size)
@@ -243,112 +260,35 @@ class LSTMGNN(nn.Module):
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
         if train:
             ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
-            #noise_cas_emb, noise_social_emb, ts, pt = self.apply_noise(cas_seq_emb_reshaped, social_seq_emb_reshaped,diff_model)  # 向embedding中加入了噪声
-            # noise_social_emb, ts, pt = self.apply_noise1(social_seq_emb_reshaped,diff_model)
-            noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
-            # social_model_output = social_reverse_model(noise_social_emb, ts)  # 在后向的过程中添加了监督信号，来辅助他的重构，因为要构建两个所以也不方便来做回传
-            cas_model_output = cas_reverse_model(noise_cas_emb,ts)
 
-            # social_recons = diff_model.get_reconstruct_loss(social_seq_emb_reshaped, social_model_output, pt)
+            noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
+
+            cas_model_output = cas_reverse_model(noise_cas_emb,ts)
             cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
-            #recons_loss = (social_recons + cas_recons) / 2
-            #recons_loss=torch.mean(recons_loss)
+
             recons_loss = torch.mean(cas_recons)
         else:
-            # social_model_output = diff_model.p_sample(social_reverse_model, social_seq_emb_reshaped, self.args.sampling_steps,
-            #                                          self.args.sampling_noise)
             cas_model_output = diff_model.p_sample(cas_reverse_model, cas_seq_emb_reshaped, self.args.sampling_steps,
                                                   self.args.sampling_noise)
 
-        #recons_loss = torch.mean(cas_recons)
-
-        # social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
 
-        # social_model_output2=social_model_output1+social_seq_emb
-        # cas_model_output2=cas_model_output1+cas_seq_emb
-        # social_model_output2 = self.fus1(social_model_output1,social_seq_emb)
+
         cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
 
 
-        # user_seq_emb=self.fus(social_model_output2,cas_seq_emb)
+
         user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
-        #user_seq_emb = self.fus(cas_seq_emb, cas_seq_emb)
+
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-
-        #all_user_emb = self.fus(social_embedding, HG_Uemb)
-        #all_user_emb=self.linear(torch.cat((social_embedding, HG_Uemb),dim=-1))
-
-        # prediction=torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
-        # prediction=self.linear2(prediction)
         prediction = self.linear1(att_out)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
-        #result=  F.softmax(result, dim=-1)
         if train:
             return result, recons_loss, ssl
         else:
             return result
-
-
-
-    def model_prediction(self, input, social_graph, diff_model, social_reverse_model, cas_reverse_model):
-
-        mask = (input == 0)
-
-        '''structure embedding'''
-        HG_Uemb = self.structure_embed()
-
-        '''cascade embedding'''
-        cas_seq_emb = F.embedding(input, HG_Uemb)
-
-        social_embedding = self.dropout(self.gnn(social_graph))
-
-        social_seq_emb = F.embedding(input, social_embedding)
-        tensor_size = social_seq_emb.size()
-        batch_size = tensor_size[0]
-        seq_len = tensor_size[1]
-
-        # Reshape the embeddings as done in the forward method
-        social_seq_emb_reshaped = social_seq_emb.view(-1, tensor_size[-1])
-        cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
-
-        # noise_social_emb = self.apply_T_noise(social_seq_emb_reshaped, diff_model)
-        # noise_cas_emb = self.apply_T_noise(cas_seq_emb_reshaped, diff_model)
-        noise_social_emb=social_seq_emb_reshaped
-        noise_cas_emb=cas_seq_emb_reshaped
-        denoise_social_emb = diff_model.p_sample(social_reverse_model, noise_social_emb, self.args.sampling_steps,
-                                                 self.args.sampling_noise)
-        denoise_cas_emb = diff_model.p_sample(cas_reverse_model, noise_cas_emb, self.args.sampling_steps,
-                                              self.args.sampling_noise)
-
-        # Reshape back to the original 3D shape
-        social_model_output1 = denoise_social_emb.view(batch_size, seq_len, -1)
-        cas_model_output1 = denoise_cas_emb.view(batch_size, seq_len, -1)
-        # social_model_output2 = social_model_output1 + social_seq_emb
-        # cas_model_output2 = cas_model_output1 + cas_seq_emb
-        social_model_output2 = self.fus1(social_model_output1, social_seq_emb)
-        cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
-
-        #user_seq_emb = self.fus(denoise_social_emb, denoise_cas_emb)
-        user_seq_emb = self.fus(social_model_output2,cas_model_output2)
-        #user_seq_emb = self.fus(social_model_output2, cas_seq_emb)
-        #user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
-        att_out = self.decoder_attention(user_seq_emb, user_seq_emb, user_seq_emb, mask=mask)
-        prediction = self.linear1(att_out)
-        #
-        # all_user_emb = self.fus(social_embedding, HG_Uemb)
-        # #all_user_emb = self.linear(torch.cat((social_embedding, HG_Uemb), dim=-1))
-        #
-        # prediction = torch.matmul(att_out, torch.transpose(all_user_emb, 1, 0))
-        # prediction = self.linear2(prediction)
-
-        mask = get_previous_user_mask(input, self.n_node)
-        result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
-        #result = F.softmax(result, dim=-1)
-
-        return result
 
     def apply_noise(self, user_emb, item_emb, diff_model):
         # cat_emb shape: (batch_size*3, emb_size)
