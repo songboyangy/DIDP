@@ -325,6 +325,7 @@ class LSTMGNN(nn.Module):
         ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
         ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
         return ssl_loss1 + ssl_loss2
+        #return ssl_loss1
 
     def social_cas_ssl(self,social_seq_emb,cas_seq_emb):
         social_seq_emb=self.social_mlp(social_seq_emb)

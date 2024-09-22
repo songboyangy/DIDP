@@ -1,7 +1,7 @@
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-preprocess', type=bool, default=False, help="preprocess dataset")    #when you first run code, you should set it to true.
+parser.add_argument('-preprocess', action='store_true', help="preprocess dataset")   #when you first run code, you should set it to true.
 
 ##### model parameters
 parser.add_argument('-data_name', type=str, default='twitter', choices=['weibo22', 'memes', 'twitter', 'douban'], help="dataset")
@@ -23,6 +23,8 @@ parser.add_argument('--prefix', type=str, default='test', help='prefix to name a
 parser.add_argument('--tau', type=float, default=0.5, help='temperature of ssl')
 parser.add_argument('--ssl_alpha', type=float, default=0.01, help='coefficient of ssl')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
+parser.add_argument('--save_model', action='store_true', help="save model")
+
 #####data process
 parser.add_argument('-train_rate', type=float, default=0.8)
 parser.add_argument('-valid_rate', type=float, default=0.1)

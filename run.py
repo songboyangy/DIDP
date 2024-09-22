@@ -42,14 +42,13 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
     social_reverse_model.train()
     cas_reverse_model.train()
     loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=Constants.PAD)
-    early_stopping = EarlyStopping(patience=opt.patience, verbose=True, path=opt.model_path)
+    early_stopping = EarlyStopping(patience=opt.patience,args=opt, verbose=True, path=opt.model_path)
     logger.info(opt)
 
     best_results = {}
     top_K = [10, 50, 100]
     validation_history = 0
     opt_model = optim.Adam(model.parameters(), lr=opt.lr)
-    #opt_social_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
     opt_cas_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
 
     for K in top_K:
@@ -89,12 +88,11 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                 logger.warning('Encountered NaN/Inf loss')
 
             opt_model.zero_grad()
-            #opt_social_dnn.zero_grad()
+
             opt_cas_dnn.zero_grad()
 
             loss.backward()
 
-            #opt_social_dnn.step()
             opt_cas_dnn.step()
             opt_model.step()
 
@@ -129,7 +127,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             logger.info(" - Test scores:")
             logger.info(f'  - (Testing) Accuracy: {100 * test_accuracy:.3f} %')
             for K in top_K:
-                logger.info(f'  - Train Loss: {total_loss:.4f}, Recall@{K}: {best_results[f"metric{K}"][0]:.4f}, '
+                logger.info(f'  - Train Loss: {total_loss:.4f}, Hit@{K}: {best_results[f"metric{K}"][0]:.4f}, '
                             f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, Epoch: {best_results[f"epoch{K}"][0]}, '
                             f'{best_results[f"epoch{K}"][1]}')
         model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
@@ -256,10 +254,7 @@ def main(data_path, seed=2023):
     top_K = [10, 50, 100]
     logger.info('Best_results：')
     for K in top_K:
-        # logger.info('  Recall@%d: %.4f, MAP@%d: %.4f, Epoch: %d, %d',
-        #              K, best_results['metric%d' % K][0], K, best_results['metric%d' % K][1],
-        #             best_results['epoch%d' % K][0], best_results['epoch%d' % K][1])
-        logger.info(f'  Recall@{K}: {best_results[f"metric{K}"][0]:.4f}, '
+        logger.info(f'Hit@{K}: {best_results[f"metric{K}"][0]:.4f}, '
                     f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, '
                     f'Epoch: {best_results[f"epoch{K}"][0]}, {best_results[f"epoch{K}"][1]}')
 
