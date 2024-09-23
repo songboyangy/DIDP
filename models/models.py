@@ -304,26 +304,58 @@ class LSTMGNN(nn.Module):
         item_noise_emb = diff_model.forward_process(item_emb, ts, item_noise)
         return user_noise_emb, item_noise_emb, ts, pt
 
-    def calc_ssl_sim(self, emb1, emb2, tau, normalization = False):
+    def calc_ssl_sim(self, emb1, emb2, tau, normalization=False):
         # (emb1, emb2) = (F.normalize(emb1, p=2, dim=0), F.normalize(emb2, p=2, dim=0))\
         if normalization:
             emb1 = nn.functional.normalize(emb1, p=2, dim=1, eps=1e-12)
             emb2 = nn.functional.normalize(emb2, p=2, dim=1, eps=1e-12)
 
-        (emb1_t, emb2_t) = (emb1.t(), emb2.t()) #这个得到他们的转置矩阵
+        (emb1_t, emb2_t) = (emb1.t(), emb2.t())  # 这个得到他们的转置矩阵
 
         pos_scores_users = torch.exp(torch.div(F.cosine_similarity(emb1, emb2, dim=1, eps=1e-8), tau))  # Sum by row
-        denominator_scores = torch.mm(emb1, emb2_t)
-        norm_emb1 = torch.norm(emb1, dim=-1)
-        norm_emb2 = torch.norm(emb2, dim=-1)
-        norm_emb = torch.mm(norm_emb1.unsqueeze(1), norm_emb2.unsqueeze(1).t())
+        # denominator cosine_similarity: following codes
+        if self.args.inter:
 
-        denominator_scores1 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(1)  # Sum by row
-        denominator_scores2 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(0)  # Sum by column
-        # denominator cosine_similarity: above codes
+            denominator_scores = torch.mm(emb1, emb2_t)
+            norm_emb1 = torch.norm(emb1, dim=-1)
+            norm_emb2 = torch.norm(emb2, dim=-1)
+            norm_emb = torch.mm(norm_emb1.unsqueeze(1), norm_emb2.unsqueeze(1).t())
 
-        ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
-        ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
+            denominator_scores1 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(1)  # Sum by row
+            denominator_scores2 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(0)  # Sum by column
+            # denominator cosine_similarity: above codes
+
+            ssl_loss1 = -torch.mean(torch.log(pos_scores_users / denominator_scores1))
+            ssl_loss2 = -torch.mean(torch.log(pos_scores_users / denominator_scores2))
+        else:  # interAintra
+            denominator_scores = torch.mm(emb1, emb2_t)
+            norm_emb1 = torch.norm(emb1, dim=-1)
+            norm_emb2 = torch.norm(emb2, dim=-1)
+            norm_emb = torch.mm(norm_emb1.unsqueeze(1), norm_emb2.unsqueeze(1).t())
+            denominator_scores1 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(1)  # Sum by row
+            denominator_scores2 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(0)  # Sum by column
+
+            denominator_scores_intraview1 = torch.mm(emb1, emb1_t)
+            norm_intra1 = torch.mm(norm_emb1.unsqueeze(1), norm_emb1.unsqueeze(1).t())
+            denominator_intra_scores1 = torch.exp(torch.div(denominator_scores_intraview1 / norm_intra1, tau))
+            diag1 = torch.diag(denominator_intra_scores1)
+            d_diag1 = torch.diag_embed(diag1)
+            denominator_intra_scores1 = denominator_intra_scores1 - d_diag1  # here we set the elements on diagonal to be 0.
+            intra_denominator_scores1 = denominator_intra_scores1.sum(1)  # Sum by row#
+            # .sum(1)
+
+            denominator_scores_intraview2 = torch.mm(emb2, emb2_t)
+            norm_intra2 = torch.mm(norm_emb2.unsqueeze(1), norm_emb2.unsqueeze(1).t())
+            denominator_intra_scores2 = torch.exp(torch.div(denominator_scores_intraview2 / norm_intra2, tau))
+            diag2 = torch.diag(denominator_intra_scores2)
+            d_diag2 = torch.diag_embed(diag2)
+            denominator_intra_scores2 = denominator_intra_scores2 - d_diag2
+            intra_denominator_scores2 = denominator_intra_scores2.sum(1)
+
+            # denominator cosine_similarity: above codes
+            ssl_loss1 = -torch.mean(torch.log(pos_scores_users / (denominator_scores1 + intra_denominator_scores1)))
+            ssl_loss2 = -torch.mean(torch.log(pos_scores_users / (denominator_scores2 + intra_denominator_scores2)))
+
         return ssl_loss1 + ssl_loss2
         #return ssl_loss1
 
