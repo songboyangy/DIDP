@@ -167,6 +167,8 @@ class LSTMGNN(nn.Module):
         self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8,device=args.device)
         #self.pos_encoding = PositionalEncoding(self.emb_size)
         self.pos_encoding = LearnedPositionalEncoding(embedding_size=self.emb_size)
+        self.time_diff_encoder=TimeDifferenceEncoder(dimension=self.emb_size).to(args.device)
+        self.time_user_cat=nn.Linear(self.emb_size*2,self.emb_size)
 
         ### channel self-gating parameters
         self.weights = nn.ParameterList(
@@ -245,6 +247,7 @@ class LSTMGNN(nn.Module):
         mask = (input == 0)
 
 
+
         '''structure embeddding'''
         HG_Uemb = self.structure_embed()
 
@@ -282,6 +285,8 @@ class LSTMGNN(nn.Module):
 
 
         user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
+        # time_diff_embedding=self.time_diff_emb(cas_time)
+        # user_seq_emb=self.time_user_cat(torch.cat([user_seq_emb,time_diff_embedding],dim=-1))
         #user_seq_emb=self.pos_encoding(user_seq_emb)
 
         #cas_tem,_=self.temp_lstm(user_seq_emb)
@@ -386,6 +391,14 @@ class LSTMGNN(nn.Module):
         user_noise_emb = diff_model.forward_process(user_emb, ts, user_noise)
 
         return user_noise_emb, ts, pt
+
+    def time_diff_emb(self,cas_time):
+        cas_timedifference = torch.diff(cas_time, dim=1)
+        batch_size=cas_time.size(0)
+        zero_padding = torch.zeros(batch_size, 1).to(cas_time.device)
+        cas_timedifference_padded = torch.cat((zero_padding, cas_timedifference), dim=1)
+        time_diff_embedding = self.time_diff_encoder(cas_timedifference_padded)
+        return time_diff_embedding
 
 
 class PositionalEncoding(nn.Module):
