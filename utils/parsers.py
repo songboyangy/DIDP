@@ -4,7 +4,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-preprocess', action='store_true', help="preprocess dataset")   #when you first run code, you should set it to true.
 
 ##### model parameters
-parser.add_argument('-data_name', type=str, default='twitter', choices=['weibo22', 'memes', 'twitter', 'douban'], help="dataset")
+parser.add_argument('-data_name', type=str, default='twitter', help="dataset")
 parser.add_argument('-epoch', type=int, default=200)
 parser.add_argument('-max_lenth', type=int, default=200)
 parser.add_argument('-batch_size', type=int, default=64)
