@@ -165,6 +165,8 @@ class LSTMGNN(nn.Module):
         self.fus1=Fusion(self.emb_size)
         self.fus2=Fusion(self.emb_size)
         self.decoder_attention=TransformerBlock(input_size=self.emb_size, n_heads=8,device=args.device)
+        #self.pos_encoding = PositionalEncoding(self.emb_size)
+        self.pos_encoding = LearnedPositionalEncoding(embedding_size=self.emb_size)
 
         ### channel self-gating parameters
         self.weights = nn.ParameterList(
@@ -238,7 +240,7 @@ class LSTMGNN(nn.Module):
 
         return u_emb_c2
 
-    def forward(self, input, social_graph,diff_model,social_reverse_model,cas_reverse_model,train=True):
+    def forward(self, input,cas_time, social_graph,diff_model,cas_reverse_model,train=True):
 
         mask = (input == 0)
 
@@ -280,15 +282,16 @@ class LSTMGNN(nn.Module):
 
 
         user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
+        #user_seq_emb=self.pos_encoding(user_seq_emb)
 
-        cas_tem,_=self.temp_lstm(user_seq_emb)
+        #cas_tem,_=self.temp_lstm(user_seq_emb)
 
 
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        cas_out= self.fus1(cas_tem,att_out)
+        #cas_out= self.fus1(cas_tem,att_out)
 
-        #prediction = self.linear1(att_out)
-        prediction = self.linear1(cas_out)
+        prediction = self.linear1(att_out)
+        #prediction = self.linear1(cas_out)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
@@ -385,4 +388,70 @@ class LSTMGNN(nn.Module):
         return user_noise_emb, ts, pt
 
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, embedding_size, max_len=5000):
+        super(PositionalEncoding, self).__init__()
 
+        # 创建一个长为 max_len 的位置编码矩阵
+        pe = torch.zeros(max_len, embedding_size)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # (max_len, 1)
+
+        # 计算 10000^(2i/d_model)
+        div_term = torch.exp(torch.arange(0, embedding_size, 2).float() * (-math.log(10000.0) / embedding_size))
+
+        # 偶数维度使用 sin，奇数维度使用 cos
+        pe[:, 0::2] = torch.sin(position * div_term)  # 偶数位置
+        pe[:, 1::2] = torch.cos(position * div_term)  # 奇数位置
+
+        pe = pe.unsqueeze(0)  # 扩展维度为 (1, max_len, embedding_size)
+        self.register_buffer('pe', pe)  # 将 pe 存储为模型的缓冲区，不会更新
+
+    def forward(self, x):
+        # x 的形状是 (batch_size, sequence_length, embedding_size)
+        # 因此我们需要对 pe 切片，选择相同的 sequence_length
+        x = x + self.pe[:, :x.size(1), :].to(x.device)  # 将位置编码加到输入的 embedding 上
+        return x
+
+class LearnedPositionalEncoding(nn.Module):
+    def __init__(self, embedding_size, max_len=5000):
+        super(LearnedPositionalEncoding, self).__init__()
+        # 定义可学习的位置编码
+        self.position_embeddings = nn.Embedding(max_len, embedding_size)
+
+    def forward(self, x):
+        batch_size, sequence_length, embedding_size = x.shape
+        # 创建位置序列 [0, 1, 2, ..., sequence_length-1]
+        position_ids = torch.arange(sequence_length, dtype=torch.long, device=x.device)
+        position_ids = position_ids.unsqueeze(0).expand(batch_size, sequence_length)  # 扩展为 (batch_size, sequence_length)
+
+        # 获取可学习的位置编码并加到嵌入上
+        position_embeddings = self.position_embeddings(position_ids)
+        x = x + position_embeddings.to(x.device)
+        return x
+
+
+class TimeDifferenceEncoder(torch.nn.Module):
+    def __init__(self, dimension: int):
+        super(TimeDifferenceEncoder, self).__init__()
+        self.dimension = dimension
+        self.w = torch.nn.Linear(1, dimension)  # 线性层，从 1 维映射到 dimension 维
+
+        # 初始化权重
+        self.w.weight = torch.nn.Parameter(
+            (torch.from_numpy(1 / 10 ** np.linspace(0, 9, dimension)))
+            .float().reshape(dimension, -1)
+        )
+        self.w.bias = torch.nn.Parameter(torch.zeros(dimension).float())
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """
+        将时间差映射到向量空间
+        :param t: 时间差张量，形状为 (batch_size, seq_len)
+        :return: 编码后的时间差向量，形状为 (batch_size, seq_len, dimension)
+        """
+        # t 的形状为 (batch_size, seq_len)，需要扩展到 (batch_size, seq_len, 1)
+        t = t.unsqueeze(dim=-1)  # 添加一维，将其变为 (batch_size, seq_len, 1)
+
+        # 线性变换并应用余弦函数，输出形状为 (batch_size, seq_len, dimension)
+        output = torch.cos(self.w(t))
+        return output
