@@ -175,7 +175,7 @@ class LSTMGNN(nn.Module):
         ###### user embedding
         self.user_embedding = nn.Embedding(self.n_node, self.emb_size, padding_idx=0)
 
-
+        self.temp_lstm=nn.LSTM(self.emb_size, self.emb_size, batch_first=True)
         self.linear = nn.Linear(self.emb_size*2, self.emb_size)
         self.linear1=nn.Linear(self.emb_size, self.n_node)
         self.linear2=nn.Linear(self.n_node, self.n_node)
@@ -281,8 +281,14 @@ class LSTMGNN(nn.Module):
 
         user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
 
+        cas_tem,_=self.temp_lstm(user_seq_emb)
+
+
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        prediction = self.linear1(att_out)
+        cas_out= self.fus1(cas_tem,att_out)
+
+        #prediction = self.linear1(att_out)
+        prediction = self.linear1(cas_out)
 
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
