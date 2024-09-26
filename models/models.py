@@ -268,7 +268,7 @@ class LSTMGNN(nn.Module):
             ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
             #ssl=self.social_cas_ssl(social_seq_emb_reshaped,cas_seq_emb_reshaped)
 
-            noise_cas_emb,  ts, pt = self.apply_noise1(cas_seq_emb_reshaped, diff_model)
+            noise_cas_emb,  ts, pt = self.apply_noise2(cas_seq_emb_reshaped, diff_model,tensor_size)
 
             cas_model_output = cas_reverse_model(noise_cas_emb,ts)
             cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
@@ -298,7 +298,7 @@ class LSTMGNN(nn.Module):
 
 
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        att_out=self.linear(torch.cat([att_out,cas_model_output1],dim=-1))
+        #att_out=self.linear(torch.cat([att_out,cas_model_output1],dim=-1))
         #cas_out= self.fus1(cas_tem,att_out)
 
         prediction = self.linear1(att_out)
@@ -388,6 +388,7 @@ class LSTMGNN(nn.Module):
     def apply_noise1(self, user_emb, diff_model):
         # cat_emb shape: (batch_size*3, emb_size)
         emb_size = user_emb.shape[0]
+        #batch_size, seq_len, emb_size = seq_size
         ts, pt = diff_model.sample_timesteps(emb_size, 'uniform')
         # ts_ = torch.tensor([self.config['steps'] - 1] * cat_emb.shape[0]).to(cat_emb.device)
 
@@ -397,6 +398,22 @@ class LSTMGNN(nn.Module):
         user_noise_emb = diff_model.forward_process(user_emb, ts, user_noise)
 
         return user_noise_emb, ts, pt
+
+    def apply_noise2(self, user_emb, diff_model,seq_size):
+        # cat_emb shape: (batch_size*3, emb_size)
+        #emb_size = user_emb.shape[0]
+        batch_size, seq_len, emb_size = seq_size
+        # ts, pt = diff_model.sample_timesteps(emb_size, 'uniform')
+        ts, pt = diff_model.sample_timesteps(batch_size, 'uniform')
+        ts_expanded = ts.unsqueeze(1).repeat(1, seq_len).view(-1)
+        # ts_ = torch.tensor([self.config['steps'] - 1] * cat_emb.shape[0]).to(cat_emb.device)
+
+        # add noise to users
+        user_noise = torch.randn_like(user_emb)
+
+        user_noise_emb = diff_model.forward_process(user_emb,ts_expanded, user_noise)
+
+        return user_noise_emb, ts_expanded, pt
 
     def time_diff_emb(self,cas_time):
         cas_timedifference = torch.diff(cas_time, dim=1)

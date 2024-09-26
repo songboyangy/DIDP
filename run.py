@@ -81,7 +81,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             #loss应该是有问题的,loss出现了严重的不平衡问题
             #loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
             loss=loss/n_words
-            loss =  loss +  recons_loss+ opt.ssl_alpha*ssl
+            loss =  loss +  opt.diff_alpha*recons_loss+ opt.ssl_alpha*ssl
             #loss = loss + recons_loss
 
             if torch.isinf(loss).any():
