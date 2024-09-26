@@ -169,6 +169,7 @@ class LSTMGNN(nn.Module):
         self.pos_encoding = LearnedPositionalEncoding(embedding_size=self.emb_size)
         self.time_diff_encoder=TimeDifferenceEncoder(dimension=self.emb_size).to(args.device)
         self.time_user_cat=nn.Linear(self.emb_size*2,self.emb_size)
+        self.dropout = nn.Dropout(p=0.1)
 
         ### channel self-gating parameters
         self.weights = nn.ParameterList(
@@ -182,7 +183,7 @@ class LSTMGNN(nn.Module):
         self.temp_lstm=nn.LSTM(self.emb_size, self.emb_size, batch_first=True)
         self.linear = nn.Linear(self.emb_size*2, self.emb_size)
         self.linear1=nn.Linear(self.emb_size, self.n_node)
-        self.linear2=nn.Linear(self.n_node, self.n_node)
+        self.linear2=nn.Linear(self.emb_size*2, self.emb_size)
 
         self.social_mlp=MLP(self.emb_size,int(self.emb_size/2),self.emb_size)
         self.cas_mlp=MLP(self.emb_size,int(self.emb_size/2),self.emb_size)
@@ -271,6 +272,7 @@ class LSTMGNN(nn.Module):
 
             cas_model_output = cas_reverse_model(noise_cas_emb,ts)
             cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
+            #ssl = self.calc_ssl_sim(social_seq_emb_reshaped, cas_model_output, self.args.tau)
 
             recons_loss = torch.mean(cas_recons)
         else:
@@ -279,12 +281,15 @@ class LSTMGNN(nn.Module):
 
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
 
-
+        #cas_model_output2 =self.linear(torch.cat([cas_model_output1,cas_seq_emb],dim=-1))
         cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
+        #cas_model_output2=self.dropout(cas_model_output2)
 
 
 
         user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
+        #user_seq_emb = self.linear2(torch.cat([social_seq_emb, cas_model_output2],dim=-1))
+        #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
         # time_diff_embedding=self.time_diff_emb(cas_time)
         # user_seq_emb=self.time_user_cat(torch.cat([user_seq_emb,time_diff_embedding],dim=-1))
         #user_seq_emb=self.pos_encoding(user_seq_emb)
@@ -293,6 +298,7 @@ class LSTMGNN(nn.Module):
 
 
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
+        #att_out=self.linear(torch.cat([att_out,user_seq_emb],dim=-1))
         #cas_out= self.fus1(cas_tem,att_out)
 
         prediction = self.linear1(att_out)
