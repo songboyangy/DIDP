@@ -298,7 +298,7 @@ class LSTMGNN(nn.Module):
 
 
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        #att_out=self.linear(torch.cat([att_out,user_seq_emb],dim=-1))
+        att_out=self.linear(torch.cat([att_out,cas_model_output1],dim=-1))
         #cas_out= self.fus1(cas_tem,att_out)
 
         prediction = self.linear1(att_out)

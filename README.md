@@ -12,5 +12,5 @@ python run.py -data_name android --prefix exp --gpu 4 -batch_size 64 --lr 0.001 
 
 
 ```shell
-python run.py -data_name christianity --prefix exp --gpu 2 -batch_size 32 --lr 0.001 --diff_lr 0.0001 --steps 50 --sampling_steps 10 --noise_scale 0.1 --ssl_alpha 0.1 --inter 
+python run.py -data_name android --prefix exp --gpu 5 -batch_size 32 --lr 0.001 --diff_lr 0.0001 --steps 50 --sampling_steps 10 --noise_scale 0.1 --ssl_alpha 0.1 --inter 
 ```

@@ -49,7 +49,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
     top_K = [10, 50, 100]
     validation_history = 0
     opt_model = optim.Adam(model.parameters(), lr=opt.lr)
-    opt_cas_dnn = optim.Adam(social_reverse_model.parameters(), lr=opt.diff_lr)
+    opt_cas_dnn = optim.Adam(cas_reverse_model.parameters(), lr=opt.diff_lr)
 
     for K in top_K:
         best_results['epoch%d' % K] = [0, 0]
