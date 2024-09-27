@@ -68,13 +68,14 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             n_total_words += n_words
 
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
+            label=label.to(opt.device)
             tar = trans_to_cuda(label.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
             label_time = trans_to_cuda(label_time.long(), device_id=opt.device)
             # pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
             #              cas_reverse_model)
 
-            pred, recons_loss,ssl = model(cascade_item,cascade_time,  social_graph, diffusion_model, cas_reverse_model)
+            pred, recons_loss,ssl = model(cascade_item,cascade_time,label,  social_graph, diffusion_model, cas_reverse_model)
 
             recons_loss_list.append(recons_loss.item())
             loss, n_correct = get_performance(loss_function, pred, tar)
@@ -157,7 +158,8 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
             n_words = label.data.ne(Constants.PAD).sum().float().item()
             cascade_item = trans_to_cuda(cascade_item.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
-            y_pred = model(cascade_item,cascade_time,social_graph,diffusion_model,cas_reverse_model,train=False)
+            label=label.to(opt.device)
+            y_pred = model(cascade_item,cascade_time,label,social_graph,diffusion_model,cas_reverse_model,train=False)
             # y_pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
             #                                 cas_reverse_model)
             tar = trans_to_cuda(label.long(), device_id=opt.device)

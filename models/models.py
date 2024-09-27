@@ -243,9 +243,10 @@ class LSTMGNN(nn.Module):
 
         return u_emb_c2
 
-    def forward(self, input,cas_time, social_graph,diff_model,cas_reverse_model,train=True):
+    def forward(self, input,cas_time,label, social_graph,diff_model,cas_reverse_model,train=True):
 
         mask = (input == 0)
+        #label=input[:,1:]
 
 
 
@@ -254,6 +255,8 @@ class LSTMGNN(nn.Module):
 
         '''past cascade embeddding'''
         cas_seq_emb = F.embedding(input, HG_Uemb)
+
+        label_embedding=F.embedding(label, HG_Uemb)
 
         social_embedding=self.dropout(self.gnn(social_graph))
 
@@ -264,6 +267,8 @@ class LSTMGNN(nn.Module):
         #下面的过程确实需要修改，需要将emd展开成二维的，这也是最简单的方法，展开成二维之后，再重塑成三维的
         social_seq_emb_reshaped = social_seq_emb.view(-1, tensor_size[-1])
         cas_seq_emb_reshaped = cas_seq_emb.view(-1, tensor_size[-1])
+        label_embedding=label_embedding.view(-1, tensor_size[-1])
+
         if train:
             ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
             #ssl=self.social_cas_ssl(social_seq_emb_reshaped,cas_seq_emb_reshaped)
@@ -273,8 +278,15 @@ class LSTMGNN(nn.Module):
             cas_model_output = cas_reverse_model(noise_cas_emb,ts)
             cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
             #ssl = self.calc_ssl_sim(social_seq_emb_reshaped, cas_model_output, self.args.tau)
+            sim1=(cas_seq_emb_reshaped*label_embedding).sum(dim=1)
+            sim2=(cas_model_output*label_embedding).sum(dim=1)
+            difference = (sim1 - sim2)**2
+            # 对差值求平均
+            mean_difference = difference.mean()
 
             recons_loss = torch.mean(cas_recons)
+            recons_loss=recons_loss+0.5*mean_difference
+
         else:
             cas_model_output = diff_model.p_sample(cas_reverse_model, cas_seq_emb_reshaped, self.args.sampling_steps,
                                                   self.args.sampling_noise)
@@ -287,7 +299,8 @@ class LSTMGNN(nn.Module):
 
 
 
-        user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
+        user_seq_emb = self.fus(social_seq_emb, cas_model_output1)
+
         #user_seq_emb = self.linear2(torch.cat([social_seq_emb, cas_model_output2],dim=-1))
         #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
         # time_diff_embedding=self.time_diff_emb(cas_time)
@@ -298,7 +311,8 @@ class LSTMGNN(nn.Module):
 
 
         att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
-        #att_out=self.linear(torch.cat([att_out,cas_model_output1],dim=-1))
+        #att_out=self.linear(torch.cat([att_out,cas_model_output2],dim=-1))
+        #att_out = F.relu(self.linear(torch.cat([att_out, cas_model_output1], dim=-1)))
         #cas_out= self.fus1(cas_tem,att_out)
 
         prediction = self.linear1(att_out)
