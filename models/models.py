@@ -171,6 +171,10 @@ class LSTMGNN(nn.Module):
         self.time_user_cat=nn.Linear(self.emb_size*2,self.emb_size)
         self.time_attention=TimeAttention(200,self.emb_size)
         self.dropout = nn.Dropout(p=0.1)
+        self.social_attention=TransformerBlock(input_size=self.emb_size, n_heads=8,device=args.device)
+        self.cas_attention=TransformerBlock(input_size=self.emb_size, n_heads=8,device=args.device)
+        self.linear_social=nn.Linear(self.emb_size, self.n_node)
+        self.linear_diff=nn.Linear(self.emb_size, self.n_node)
 
         ### channel self-gating parameters
         self.weights = nn.ParameterList(
@@ -295,16 +299,30 @@ class LSTMGNN(nn.Module):
                                                   self.args.sampling_noise)
 
         cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
+        #采用另外一种思路，不去聚合表示，而是相乘最后再相加
+        #social距离
+        social_cas=self.social_attention(social_seq_emb,social_seq_emb,social_seq_emb)
+        social_prediction = torch.matmul(social_cas, torch.transpose(social_embedding, 1, 0))
+        output_s1=self.linear_social(social_cas)
+        output_s=social_prediction+output_s1
+        # diff距离
+        cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
+        diff_cas=self.cas_attention(cas_model_output2,cas_model_output2,cas_model_output2)
+        diff_prediction=torch.matmul(diff_cas, torch.transpose(HG_Uemb, 1, 0))
+        output_d1=self.linear_diff(diff_cas)
+        output_d=diff_prediction+output_d1
+
+        prediction=0.1*output_s+output_d
 
 
 
         #cas_model_output2 =self.linear(torch.cat([cas_model_output1,cas_seq_emb],dim=-1))
-        cas_model_output2=self.fus2(cas_model_output1,cas_seq_emb)
+
         #cas_model_output2=self.dropout(cas_model_output2)
 
 
 
-        user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
+        #user_seq_emb = self.fus(social_seq_emb, cas_model_output2)
 
         #user_seq_emb = self.linear2(torch.cat([social_seq_emb, cas_model_output2],dim=-1))
         #user_seq_emb = self.fus(social_seq_emb, cas_seq_emb)
@@ -315,12 +333,12 @@ class LSTMGNN(nn.Module):
         #cas_tem,_=self.temp_lstm(user_seq_emb)
 
 
-        att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
+        #att_out=self.decoder_attention(user_seq_emb,user_seq_emb,user_seq_emb,mask=mask)
         #att_out=self.linear(torch.cat([att_out,cas_model_output2],dim=-1))
         #att_out = F.relu(self.linear(torch.cat([att_out, cas_model_output1], dim=-1)))
         #cas_out= self.fus1(cas_tem,att_out)
 
-        prediction = self.linear1(att_out)
+        #prediction = self.linear1(att_out)
         #prediction = self.linear1(cas_out)
 
         mask = get_previous_user_mask(input, self.n_node)
