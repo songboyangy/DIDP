@@ -136,6 +136,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                             f'{best_results[f"epoch{K}"][1]}')
         model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
         early_stopping(-sum(list(t_scores.values())), model_list,logger)
+        #early_stopping(-sum(list(val_scores.values())), model_list, logger)
         if early_stopping.early_stop:
             logger.info("Early Stopping")
             break
