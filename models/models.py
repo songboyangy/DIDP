@@ -301,7 +301,7 @@ class LSTMGNN(nn.Module):
         output_s=social_prediction+output_s1
         # diff距离
         #cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
-        cas_model_output2=0.3*cas_model_output1+cas_seq_emb
+        cas_model_output2=self.args.lambda_d*cas_model_output1+cas_seq_emb
         #cas_model_output2=self.diff_fuse(torch.cat([cas_model_output1,cas_seq_emb],dim=-1))
         diff_cas=self.cas_attention(cas_model_output2,cas_model_output2,cas_model_output2)
        #diff_cas = self.cas_attention(cas_seq_emb, cas_seq_emb, cas_seq_emb)

@@ -22,11 +22,11 @@ parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
 parser.add_argument('--prefix', type=str, default='test', help='prefix to name a trial')
 parser.add_argument('--tau', type=float, default=0.5, help='temperature of ssl')
 parser.add_argument('--ssl_alpha', type=float, default=0.01, help='coefficient of ssl')
-parser.add_argument('--diff_alpha', type=float, default=0.5, help='coefficient of ssl')
+parser.add_argument('--diff_alpha', type=float, default=0.5, help='coefficient of restruct loss')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--save_model', action='store_true', help="save model")
 parser.add_argument('--inter', action='store_true', help="inter or interAintra")
-
+parser.add_argument('--lambda_d', type=float, default=0.1, help='coefficient of ssl')
 #####data process
 parser.add_argument('-train_rate', type=float, default=0.8)
 parser.add_argument('-valid_rate', type=float, default=0.1)

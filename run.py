@@ -112,10 +112,10 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         test_scores.pop('loss', None)
         t_scores=test_scores.copy()
 
-        # if validation_history <= sum(val_scores.values()):
-        #     validation_history = sum(val_scores.values())
-        if test_history <= sum(test_scores.values()):
-            test_history = sum(test_scores.values())
+        if validation_history <= sum(val_scores.values()):
+            validation_history = sum(val_scores.values())
+        # if test_history <= sum(test_scores.values()):
+        #     test_history = sum(test_scores.values())
             for K in top_K:
                 test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)] * 100
                 test_scores['map@' + str(K)] = test_scores['map@' + str(K)] * 100
@@ -135,8 +135,8 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                             f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, Epoch: {best_results[f"epoch{K}"][0]}, '
                             f'{best_results[f"epoch{K}"][1]}')
         model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
-        early_stopping(-sum(list(t_scores.values())), model_list,logger)
-        #early_stopping(-sum(list(val_scores.values())), model_list, logger)
+        #early_stopping(-sum(list(t_scores.values())), model_list,logger)
+        early_stopping(-sum(list(val_scores.values())), model_list, logger)
         if early_stopping.early_stop:
             logger.info("Early Stopping")
             break
