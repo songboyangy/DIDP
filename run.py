@@ -117,8 +117,8 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         # if test_history <= sum(test_scores.values()):
         #     test_history = sum(test_scores.values())
             for K in top_K:
-                test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)] * 100
-                test_scores['map@' + str(K)] = test_scores['map@' + str(K)] * 100
+                test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)]
+                test_scores['map@' + str(K)] = test_scores['map@' + str(K)]
                 best_results['metric%d' % K][0] = test_scores['hits@' + str(K)]
                 best_results['epoch%d' % K][0] = epoch
                 best_results['metric%d' % K][1] = test_scores['map@' + str(K)]
