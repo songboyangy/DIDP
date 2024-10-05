@@ -233,7 +233,8 @@ class LSTMGNN(nn.Module):
             H_Item = self.H_Item
             H_User = self.H_User
 
-        u_emb_c2 = self.self_gating(self.user_embedding.weight, 0)
+        #u_emb_c2 = self.self_gating(self.user_embedding.weight, 0)
+        u_emb_c2=self.user_embedding.weight
 
 
         all_emb_c2 = [u_emb_c2]
