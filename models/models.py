@@ -279,33 +279,37 @@ class LSTMGNN(nn.Module):
         #label_embedding=label_embedding.view(-1, tensor_size[-1])
 
         if train:
-            ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
+            #ssl=self.calc_ssl_sim(social_seq_emb_reshaped,cas_seq_emb_reshaped,self.args.tau)
             #ssl=self.social_cas_ssl(social_seq_emb_reshaped,cas_seq_emb_reshaped)
 
-            noise_cas_emb,  ts, pt = self.apply_noise2(cas_seq_emb_reshaped, diff_model,tensor_size)
+            noise_cas_emb,  ts, pt = self.apply_noise2(social_seq_emb_reshaped, diff_model,tensor_size)
 
-            cas_model_output = cas_reverse_model(noise_cas_emb,ts)
-            cas_recons = diff_model.get_reconstruct_loss(cas_seq_emb_reshaped, cas_model_output, pt)
+            social_model_output = cas_reverse_model(noise_cas_emb,ts)
+            social_recons = diff_model.get_reconstruct_loss(social_seq_emb_reshaped, social_model_output, pt)
 
-            recons_loss = torch.mean(cas_recons)
+            recons_loss = torch.mean(social_recons)
 
         else:
-            cas_model_output = diff_model.p_sample(cas_reverse_model, cas_seq_emb_reshaped, self.args.sampling_steps,
+            social_model_output = diff_model.p_sample(cas_reverse_model, social_seq_emb_reshaped, self.args.sampling_steps,
                                                   self.args.sampling_noise)
+        ssl=self.calc_ssl_sim(social_model_output,cas_seq_emb_reshaped,self.args.tau)
+        social_model_output1=social_model_output.view(batch_size, seq_len, -1)
 
-        cas_model_output1=cas_model_output.view(batch_size, seq_len, -1)
         #采用另外一种思路，不去聚合表示，而是相乘最后再相加
         #social距离
-        social_cas=self.social_attention(social_seq_emb,social_seq_emb,social_seq_emb)
+        #social_cas=self.social_attention(social_seq_emb,social_seq_emb,social_seq_emb)
+        #social_model_output2 = self.diff_fuse(torch.cat([social_model_output1, social_seq_emb], dim=-1))
+        social_model_output2 = social_model_output1+social_seq_emb
+        social_cas = self.social_attention(social_model_output2, social_model_output2, social_model_output2)
         social_prediction = torch.matmul(social_cas, torch.transpose(social_embedding, 1, 0))
         output_s1=self.linear_social(social_cas)
         output_s=social_prediction+output_s1
         # diff距离
         #cas_model_output2 = self.fus2(cas_model_output1, cas_seq_emb)
-        cas_model_output2=self.args.lambda_d*cas_model_output1+cas_seq_emb
+        #cas_model_output2=self.args.lambda_d*cas_model_output1+cas_seq_emb
         #cas_model_output2=self.diff_fuse(torch.cat([cas_model_output1,cas_seq_emb],dim=-1))
-        diff_cas=self.cas_attention(cas_model_output2,cas_model_output2,cas_model_output2)
-       #diff_cas = self.cas_attention(cas_seq_emb, cas_seq_emb, cas_seq_emb)
+        #diff_cas=cumulative_average(cas_seq_emb)
+        diff_cas = self.cas_attention(cas_seq_emb, cas_seq_emb,cas_seq_emb)
 
         diff_prediction=torch.matmul(diff_cas, torch.transpose(HG_Uemb, 1, 0))
         output_d1=self.linear_diff(diff_cas)
@@ -316,7 +320,7 @@ class LSTMGNN(nn.Module):
         mask = get_previous_user_mask(input, self.n_node)
         result = (prediction + mask).view(-1, prediction.size(-1)).to(self.args.device)
         if train:
-            # c1=self.cas_attention(cas_model_output1,cas_model_output1,cas_model_output1)
+            # c1=cumulative_average(cas_model_output1)
             # c_difference=mse_loss(y_pred=c1,y_true=label_embedding)
             # recons_loss=recons_loss+c_difference
             return result, recons_loss, ssl
