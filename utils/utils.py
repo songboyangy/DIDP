@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import numpy as np
 import math
+import random
 def set_config(args):
     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     # param['prefix'] = f'{args.prefix}_{args.dataset}_CTCP'
@@ -136,3 +137,30 @@ def mse_loss(y_pred, y_true):
     mse = squared_diff.mean()  # 这里 .mean() 默认会对所有维度求平均
 
     return mse
+
+def add_random_edges_to_file(input_filename, output_filename, noise_ratio):
+    # 读取原始数据
+    with open(input_filename, 'r') as file:
+        edges = [line.strip().split(',') for line in file]
+
+    # 记录所有用户
+    users = set(user for edge in edges for user in edge)
+    new_edges = edges.copy()
+    num_edges = len(edges)
+    num_noise_edges = int(noise_ratio * num_edges)
+
+    # 添加随机连接
+    for _ in range(num_noise_edges):
+        user1 = random.choice(list(users))
+        user2 = random.choice(list(users))
+        while user1 == user2 or [user1, user2] in new_edges or [user2, user1] in new_edges:
+            user1 = random.choice(list(users))
+            user2 = random.choice(list(users))
+        new_edges.append([user1, user2])
+
+    # 将结果写回文件
+    with open(output_filename, 'w') as file:
+        for edge in new_edges:
+            file.write(','.join(edge) + '\n')
+
+    print(f"随机连接已成功添加，并保存到 '{output_filename}' 文件中。")

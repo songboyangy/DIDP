@@ -119,8 +119,8 @@ def ConHypergraph(data_name, user_size, window):
     return HG_Item, HG_User
 
 
-def ConRelationGraph(data):
-    options = Options(data)
+def ConRelationGraph(data,noise=False):
+    options = Options(data,noise=noise)
     _u2idx = {}
 
     with open(options.u2idx_dict, 'rb') as handle:

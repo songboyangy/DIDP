@@ -9,11 +9,14 @@ from torch.utils.data import Dataset
 
 
 class Options(object):
-    def __init__(self, data_name='douban'):
+    def __init__(self, data_name='douban',noise=False):
         self.data = 'data/' + data_name + '/cascades.txt'
         self.u2idx_dict = 'data/' + data_name + '/u2idx.pickle'
         self.idx2u_dict = 'data/' + data_name + '/idx2u.pickle'
-        self.net_data = 'data/' + data_name + '/edges.txt'
+        if noise:
+            self.net_data = 'data/' + data_name + '/edges_noisy.txt'
+        else:
+            self.net_data = 'data/' + data_name + '/edges.txt'
 
         # train file path.
         self.train_data = 'data/' + data_name + '/cascadetrain.txt'

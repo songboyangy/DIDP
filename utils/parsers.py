@@ -27,6 +27,7 @@ parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--save_model', action='store_true', help="save model")
 parser.add_argument('--inter', action='store_true', help="inter or interAintra")
 parser.add_argument('--lambda_d', type=float, default=0.1, help='coefficient of denoising embedding')
+parser.add_argument('--noise', action='store_true', help="add_social_noise")
 #####data process
 parser.add_argument('-train_rate', type=float, default=0.8)
 parser.add_argument('-valid_rate', type=float, default=0.1)

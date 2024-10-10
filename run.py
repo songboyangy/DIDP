@@ -233,7 +233,7 @@ def main(data_path, seed=2023):
     train_loader = DataLoader(dataset=train_data, batch_size=opt.batch_size, shuffle=True, num_workers=8)
     val_loader = DataLoader(dataset=val_data, batch_size=opt.batch_size, shuffle=False, num_workers=8)
     test_loader = DataLoader(dataset=test_data, batch_size=opt.batch_size, shuffle=False, num_workers=8)
-    social_graph = ConRelationGraph(data_path)
+    social_graph = ConRelationGraph(data_path,noise=opt.noise)
 
     device_string = 'cuda:{}'.format(opt.gpu) if torch.cuda.is_available() else 'cpu'
     device = torch.device(device_string)
