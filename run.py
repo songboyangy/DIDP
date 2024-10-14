@@ -1,7 +1,7 @@
 import datetime
 import Constants
 from tqdm import tqdm
-from models.models import *
+from models.DIDP import *
 from torch.utils.data import DataLoader
 from dataLoader import datasets, Read_data, Split_data
 from utils.parsers import parser
@@ -72,19 +72,16 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             label=label.to(opt.device)
             tar = trans_to_cuda(label.long(), device_id=opt.device)
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
-            label_time = trans_to_cuda(label_time.long(), device_id=opt.device)
-            # pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
-            #              cas_reverse_model)
+
 
             pred, recons_loss,ssl = model(cascade_item,cascade_time,label,  social_graph, diffusion_model, cas_reverse_model)
 
             recons_loss_list.append(recons_loss.item())
             loss, n_correct = get_performance(loss_function, pred, tar)
-            #loss应该是有问题的,loss出现了严重的不平衡问题
-            #loss = (1 - opt.alpha) * loss + opt.alpha * recons_loss
+
             loss=loss/n_words
             loss =  loss +  opt.diff_alpha*recons_loss+ opt.ssl_alpha*ssl
-            #loss = loss + recons_loss
+
 
             if torch.isinf(loss).any():
                 logger.warning('Encountered NaN/Inf loss')
@@ -102,7 +99,7 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
             n_total_correct += n_correct
 
 
-        #logger.info('Epoch %d - Total Loss: %.3f', epoch, total_loss)
+
         average_loss = total_loss / len(train_loader)
         val_scores, val_accuracy = model_testing(model, val_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
         test_scores, test_accuracy = model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function)
@@ -110,12 +107,11 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         logger.info(f'Train loss {average_loss} recon loss: {np.mean(np.array(recons_loss_list))} Val loss {val_loss}')
         val_scores.pop('loss', None)
         test_scores.pop('loss', None)
-        t_scores=test_scores.copy()
+
 
         if validation_history <= sum(val_scores.values()):
             validation_history = sum(val_scores.values())
-        # if test_history <= sum(test_scores.values()):
-        #     test_history = sum(test_scores.values())
+
             for K in top_K:
                 test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)]
                 test_scores['map@' + str(K)] = test_scores['map@' + str(K)]
@@ -135,7 +131,6 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
                             f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, Epoch: {best_results[f"epoch{K}"][0]}, '
                             f'{best_results[f"epoch{K}"][1]}')
         model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
-        #early_stopping(-sum(list(t_scores.values())), model_list,logger)
         early_stopping(-sum(list(val_scores.values())), model_list, logger)
         if early_stopping.early_stop:
             logger.info("Early Stopping")
@@ -151,7 +146,7 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
 
     n_total_words = 0.0
     n_correct = 0.0
-    #print('start predicting: ', datetime.datetime.now())
+
     model.eval()
     social_reverse_model.eval()
     cas_reverse_model.eval()
@@ -164,8 +159,7 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
             cascade_time = trans_to_cuda(cascade_time.long(), device_id=opt.device)
             label=label.to(opt.device)
             y_pred = model(cascade_item,cascade_time,label,social_graph,diffusion_model,cas_reverse_model,train=False)
-            # y_pred = model(cascade_item, social_graph, diffusion_model, social_reverse_model,
-            #                                 cas_reverse_model)
+
             tar = trans_to_cuda(label.long(), device_id=opt.device)
             loss, n_correct = get_performance(loss_function, y_pred, tar)
             loss=loss/n_words
@@ -266,6 +260,5 @@ def main(data_path, seed=2023):
 
 
 if __name__ == "__main__":
-    #原来seed是2023
     main(opt.data_name, seed=opt.seed)
 
