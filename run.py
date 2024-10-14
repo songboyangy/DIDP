@@ -37,7 +37,6 @@ def get_performance(crit, pred, gold):
 
 
 def model_training(model, train_loader, val_loader, test_loader, social_graph, opt, social_reverse_model, cas_reverse_model, diffusion_model, logger):
-    ''' Model training '''
     model.train()
     social_reverse_model.train()
     cas_reverse_model.train()
@@ -138,7 +137,6 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
 
     return best_results
 def model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function, k_list=[10, 50, 100]):
-    ''' Epoch operation in evaluation phase '''
     scores = {}
     for k in k_list:
         scores['hits@' + str(k)] = 0
@@ -238,7 +236,7 @@ def main(data_path, seed=2023):
     HG_Item = trans_to_cuda(HG_Item, device_id=opt.device)
     HG_User = trans_to_cuda(HG_User, device_id=opt.device)
 
-    model = trans_to_cuda(LSTMGNN(hypergraphs=[HG_Item, HG_User], args=opt, dropout=opt.dropout), device_id=opt.device)
+    model = trans_to_cuda(DIDP(hypergraphs=[HG_Item, HG_User], args=opt, dropout=opt.dropout), device_id=opt.device)
     output_dims = [opt.embSize] + [opt.embSize]
     input_dims = output_dims[::-1]
     social_reverse_model = trans_to_cuda(SDNet(input_dims, output_dims, opt.embSize), device_id=opt.device)

@@ -194,7 +194,6 @@ def Split_data(data_name, train_rate=0.8, valid_rate=0.1, load_dict=False):
         for i in range(len(train)):
             data = list(zip(train[i], train_t[i]))
             data_lst0 = [','.join(map(str, x)) for x in data]
-            # data = str(train_idx[i]) + ' ' + ' '.join(data_lst0)
             data = ' '.join(data_lst0)
             f.writelines(data + "\n")
 
@@ -206,7 +205,6 @@ def Split_data(data_name, train_rate=0.8, valid_rate=0.1, load_dict=False):
         for i in range(len(valid)):
             data = list(zip(valid[i], valid_t[i]))
             data_lst0 = [','.join(map(str, x)) for x in data]
-            # data = str(valid_idx[i]) + ' ' + ' '.join(data_lst0)
             data = ' '.join(data_lst0)
             f.writelines(data + "\n")
 
@@ -233,7 +231,6 @@ def Split_data(data_name, train_rate=0.8, valid_rate=0.1, load_dict=False):
     print('minimum length:%f' % (min(len(cas) for cas in t_cascades)))
     print("user size:%d" % (user_size - 2))
 
-    # return user_size, t_cascades, timestamps
 
 
 def Read_all_cascade(data_name, with_EOS=False):

@@ -67,7 +67,7 @@ def ConHypergraph(data_name, user_size, window):
     H_U_sum = 1.0 / H_U.sum(axis=1).reshape(1, -1)
     H_U_sum[H_U_sum == float("inf")] = 0
 
-    # BH_T = H_S.T.multiply(1.0 / H_S.sum(axis=1).reshape(1, -1))
+
     BH_T = H_U.T.multiply(H_U_sum)
     BH_T = BH_T.T
     H = H_U.T
@@ -76,7 +76,6 @@ def ConHypergraph(data_name, user_size, window):
     H_sum[H_sum == float("inf")] = 0
 
     DH = H.T.multiply(H_sum)
-    # DH = H.T.multiply(1.0 / H.sum(axis=1).reshape(1, -1))
     DH = DH.T
     HG_User = np.dot(DH, BH_T).tocoo()
 
@@ -99,7 +98,7 @@ def ConHypergraph(data_name, user_size, window):
     H_T_sum = 1.0 / H_T.sum(axis=1).reshape(1, -1)
     H_T_sum[H_T_sum == float("inf")] = 0
 
-    # BH_T = H_T.T.multiply(1.0 / H_T.sum(axis=1).reshape(1, -1))
+
     BH_T = H_T.T.multiply(H_T_sum)
     BH_T = BH_T.T
     H = H_T.T
@@ -108,7 +107,6 @@ def ConHypergraph(data_name, user_size, window):
     H_sum[H_sum == float("inf")] = 0
 
     DH = H.T.multiply(H_sum)
-    # DH = H.T.multiply(1.0 / H.sum(axis=1).reshape(1, -1))
     DH = DH.T
     HG_Item = np.dot(DH, BH_T).tocoo()
 

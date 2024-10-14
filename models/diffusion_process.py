@@ -71,17 +71,17 @@ class DiffusionProcess(nn.Module):
                 / (1.0 - self.alphas_cumprod)
         )
 
-    def caculate_losses(self, model, emb_s, reweight=False):  # 在这里面传入的model是SDnet
+    def caculate_losses(self, model, emb_s, reweight=False):
         batch_size, device = emb_s.size(0), emb_s.device
-        ts, pt = self.sample_timesteps(batch_size, device, 'uniform')  # 采样出时间步t
+        ts, pt = self.sample_timesteps(batch_size, device, 'uniform')
         noise = th.randn_like(emb_s)
-        emb_t = self.forward_process(emb_s, ts, noise)  # 前向过程，添加噪声
+        emb_t = self.forward_process(emb_s, ts, noise)
         terms = {}
         model_output = model(emb_t, ts)
 
         assert model_output.shape == emb_s.shape
 
-        mse = mean_flat((emb_s - model_output) ** 2)  # 计算emb_s与模型的预测值的误差mse
+        mse = mean_flat((emb_s - model_output) ** 2)
 
         if reweight == True:
 
@@ -93,7 +93,7 @@ class DiffusionProcess(nn.Module):
             weight = th.tensor([1.0] * len(model_output)).to(device)
 
         terms["loss"] = weight * loss
-        terms["pred_xstart"] = model_output  # 这个应该是模型还原出的东西
+        terms["pred_xstart"] = model_output
         return terms
 
     def p_sample(self, model, emb_s, steps, sampling_noise=False):
@@ -126,7 +126,7 @@ class DiffusionProcess(nn.Module):
         return emb_t
 
     def sample_timesteps(self, batch_size, method='uniform', uniform_prob=0.001):
-        if method == 'importance':  # importance sampling
+        if method == 'importance':
             if not (self.Lt_count == self.keep_num).all():
                 return self.sample_timesteps(batch_size, self.device, method='uniform')
 
@@ -240,8 +240,8 @@ class DiffusionProcess(nn.Module):
         arr = arr.to(timesteps.device)
         res = arr[timesteps].float()
         while len(res.shape) < len(broadcast_shape):
-            res = res[..., None]  # 在末尾添加一个新的维度
-        return res.expand(broadcast_shape)  # 使用广播机制，调整到与broadcast_shap相同的形状
+            res = res[..., None]
+        return res.expand(broadcast_shape)
     def get_reconstruct_loss(self, cat_emb, re_emb, pt):
         loss = mean_flat((cat_emb - re_emb) ** 2)
         return loss
@@ -257,12 +257,7 @@ def betas_from_linear_variance(steps, variance, max_beta=0.999):
 
 
 def normal_kl(mean1, logvar1, mean2, logvar2):
-    """
-    Compute the KL divergence between two gaussians.
 
-    Shapes are automatically broadcasted, so batches can be compared to
-    scalars, among other use cases.
-    """
     tensor = None
     for obj in (mean1, logvar1, mean2, logvar2):
         if isinstance(obj, th.Tensor):
@@ -286,11 +281,6 @@ def normal_kl(mean1, logvar1, mean2, logvar2):
     )
 
 
-# def mean_flat(tensor):
-#     """
-#     Take the mean over all non-batch dimensions.
-#     """
-#     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 def mean_flat(tensor):
     """
     Take the mean over all non-batch dimensions.

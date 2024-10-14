@@ -43,7 +43,7 @@ class MultiHeadedAttention(nn.Module):
 
     def attention(self, query, key, value, mask=None, dropout=None):
         d_k = query.size(-1)
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)  # matmul矩阵相乘
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
         p_attn = F.softmax(scores, dim=-1)
@@ -132,7 +132,7 @@ class TransformerBlock(nn.Module):
 
         Q_K_score = F.softmax(Q_K, dim=-1)  # (batch_size, max_q_words, max_k_words)
         Q_K_score = self.dropout(Q_K_score)
-        #维度为3的两个矩阵的乘法
+
         V_att = Q_K_score.bmm(V)  # (*, max_q_words, input_size)
         return V_att
 
@@ -165,7 +165,7 @@ class TransformerBlock(nn.Module):
         V_att = V_att.view(bsz, self.n_heads, q_len, self.d_v)
         V_att = V_att.permute(0, 2, 1, 3).contiguous().view(bsz, q_len, self.n_heads*self.d_v)
 
-        output = self.dropout(V_att.matmul(self.W_o)) # (batch_size, max_q_words, input_size)
+        output = self.dropout(V_att.matmul(self.W_o))
         return output
 
 
@@ -179,7 +179,7 @@ class TransformerBlock(nn.Module):
         V_att = self.multi_head_attention(Q, K, V, mask)
 
         if self.is_layer_norm:
-            X = self.layer_norm(Q + V_att)  # (batch_size, max_r_words, embedding_dim)
+            X = self.layer_norm(Q + V_att)
             output = self.layer_norm(self.FFN(X) + X)
         else:
             X = Q + V_att
