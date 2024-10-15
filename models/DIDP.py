@@ -93,6 +93,7 @@ class DIDP(nn.Module):
         self.H_User =hypergraphs[1]
 
         self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout,device=args.device)
+        self.diff_fuse = nn.Linear(self.emb_size * 2, self.emb_size)
 
 
         self.dropout = nn.Dropout(p=0.1)
