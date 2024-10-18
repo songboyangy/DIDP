@@ -107,34 +107,6 @@ def model_training(model, train_loader, val_loader, test_loader, social_graph, o
         val_scores.pop('loss', None)
         test_scores.pop('loss', None)
 
-
-        if validation_history <= sum(val_scores.values()):
-            validation_history = sum(val_scores.values())
-
-            for K in top_K:
-                test_scores['hits@' + str(K)] = test_scores['hits@' + str(K)]
-                test_scores['map@' + str(K)] = test_scores['map@' + str(K)]
-                best_results['metric%d' % K][0] = test_scores['hits@' + str(K)]
-                best_results['epoch%d' % K][0] = epoch
-                best_results['metric%d' % K][1] = test_scores['map@' + str(K)]
-                best_results['epoch%d' % K][1] = epoch
-
-            logger.info(f'Epoch {epoch} - Average Train Loss: {average_loss:.3f}')
-            val_scores_str = '  '.join(f'{metric}: {val_scores[metric] * 100:.3f}%' for metric in val_scores)
-            logger.info(f" - Validation scores:\n  - (Validation) Accuracy: {100 * val_accuracy:.3f} %\n  - {val_scores_str}")
-
-            logger.info(" - Test scores:")
-            logger.info(f'  - (Testing) Accuracy: {100 * test_accuracy:.3f} %')
-            for K in top_K:
-                logger.info(f'  - Train Loss: {total_loss:.4f}, Hit@{K}: {best_results[f"metric{K}"][0]:.4f}, '
-                            f'MAP@{K}: {best_results[f"metric{K}"][1]:.4f}, Epoch: {best_results[f"epoch{K}"][0]}, '
-                            f'{best_results[f"epoch{K}"][1]}')
-        model_list=[model,social_reverse_model,cas_reverse_model,diffusion_model]
-        early_stopping(-sum(list(val_scores.values())), model_list, logger)
-        if early_stopping.early_stop:
-            logger.info("Early Stopping")
-            break
-
     return best_results
 def model_testing(model, test_loader, social_graph, social_reverse_model, cas_reverse_model, diffusion_model,loss_function, k_list=[10, 50, 100]):
     scores = {}
@@ -170,20 +142,6 @@ def model_testing(model, test_loader, social_graph, social_reverse_model, cas_re
             gold = tar.contiguous().view(-1)
             correct = pred.data.eq(gold.data)
             n_correct = correct.masked_select(gold.ne(Constants.PAD).data).sum().float()
-
-            scores_batch, scores_len = metric.compute_metric(y_pred, tar, k_list)
-            n_total_words += scores_len
-
-            for k in k_list:
-                scores['hits@' + str(k)] += scores_batch['hits@' + str(k)] * scores_len
-                scores['map@' + str(k)] += scores_batch['map@' + str(k)] * scores_len
-
-        average_loss = total_loss / len(test_loader)
-        scores['loss']=average_loss
-
-        for k in k_list:
-            scores['hits@' + str(k)] = scores['hits@' + str(k)] / n_total_words
-            scores['map@' + str(k)] = scores['map@' + str(k)] / n_total_words
 
         return scores, n_correct / n_total_words
 

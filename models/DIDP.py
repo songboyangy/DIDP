@@ -16,13 +16,6 @@ def trans_to_cuda(variable, device_id=0):
         return variable
 
 
-def trans_to_cpu(variable):
-    if torch.cuda.is_available():
-        return variable.cpu()
-    else:
-        return variable
-
-
 def get_previous_user_mask(seq, user_size):
     assert seq.dim() == 2
     device = seq.device
@@ -93,7 +86,7 @@ class DIDP(nn.Module):
         self.H_User =hypergraphs[1]
 
         self.gnn = GraphNN(self.n_node, self.emb_size, dropout=dropout,device=args.device)
-        self.diff_fuse = nn.Linear(self.emb_size * 2, self.emb_size)
+
 
 
         self.dropout = nn.Dropout(p=0.1)
@@ -130,16 +123,13 @@ class DIDP(nn.Module):
         g = torch.sparse.FloatTensor(index.t(), values, size)
         return g
 
-    '''social structure and hypergraph structure embeddding'''
-    def structure_embed(self, H_Time=None, H_Item=None, H_User=None):
+
+    def hypergraph_learning(self):
 
         if self.training:
             H_Item = self._dropout_graph(self.H_Item, keep_prob=1-self.drop_rate)
-            H_User = self._dropout_graph(self.H_User, keep_prob=1-self.drop_rate)
         else:
             H_Item = self.H_Item
-            H_User = self.H_User
-
 
         u_emb_c2=self.user_embedding.weight
 
@@ -164,7 +154,7 @@ class DIDP(nn.Module):
 
 
 
-        HG_Uemb = self.structure_embed()
+        HG_Uemb = self.hypergraph_learning()
 
         cas_seq_emb = F.embedding(input, HG_Uemb)
 
@@ -192,7 +182,6 @@ class DIDP(nn.Module):
                                                   self.args.sampling_noise)
         ssl=self.calc_ssl_sim(social_model_output,cas_seq_emb_reshaped,self.args.tau)
 
-        social_model_output1=social_model_output.view(batch_size, seq_len, -1)
         social_model_output2 = self.diff_fuse(torch.cat([social_model_output1, social_seq_emb], dim=-1))
         social_cas = self.social_attention(social_model_output2, social_model_output2, social_model_output2)
         social_prediction = torch.matmul(social_cas, torch.transpose(social_embedding, 1, 0))
@@ -226,9 +215,6 @@ class DIDP(nn.Module):
         if self.args.inter:
 
             denominator_scores = torch.mm(emb1, emb2_t)
-            norm_emb1 = torch.norm(emb1, dim=-1)
-            norm_emb2 = torch.norm(emb2, dim=-1)
-            norm_emb = torch.mm(norm_emb1.unsqueeze(1), norm_emb2.unsqueeze(1).t())
 
             denominator_scores1 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(1)
             denominator_scores2 = torch.exp(torch.div(denominator_scores / norm_emb, tau)).sum(0)
@@ -242,7 +228,6 @@ class DIDP(nn.Module):
 
         batch_size, seq_len, emb_size = seq_size
         ts, pt = diff_model.sample_timesteps(batch_size, 'uniform')
-        ts_expanded = ts.unsqueeze(1).repeat(1, seq_len).view(-1)
 
         user_noise = torch.randn_like(user_emb)
 
